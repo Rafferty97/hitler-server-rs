@@ -6,21 +6,21 @@ use super::party::Party;
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Player {
     pub name: String,
-    pub role: PlayerRole,
+    pub role: Role,
     pub alive: bool,
     pub not_hitler: bool,
     pub investigated: bool,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-pub enum PlayerRole {
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum Role {
     Liberal,
     Fascist,
     Hitler,
 }
 
 impl Player {
-    pub fn new(name: String, role: PlayerRole) -> Self {
+    pub fn new(name: String, role: Role) -> Self {
         Self {
             name,
             role,
@@ -32,9 +32,9 @@ impl Player {
 
     pub fn party(&self) -> Party {
         match self.role {
-            PlayerRole::Liberal => Party::Liberal,
-            PlayerRole::Fascist => Party::Fascist,
-            PlayerRole::Hitler => Party::Fascist,
+            Role::Liberal => Party::Liberal,
+            Role::Fascist => Party::Fascist,
+            Role::Hitler => Party::Fascist,
         }
     }
 }
@@ -60,11 +60,11 @@ impl RoleAssigner {
         Self { fascists }
     }
 
-    pub fn get(&self, index: usize) -> PlayerRole {
+    pub fn get(&self, index: usize) -> Role {
         match self.fascists.iter().position(|i| *i == index) {
-            Some(0) => PlayerRole::Hitler,
-            Some(_) => PlayerRole::Fascist,
-            None => PlayerRole::Liberal,
+            Some(0) => Role::Hitler,
+            Some(_) => Role::Fascist,
+            None => Role::Liberal,
         }
     }
 }

@@ -14,13 +14,9 @@ impl Votes {
         Self { num_players, votes }
     }
 
-    /// Records the vote of a player, and return
-    pub fn vote(&mut self, player_idx: usize, vote: bool) -> bool {
+    /// Records the vote of a player.
+    pub fn vote(&mut self, player_idx: usize, vote: bool) {
         self.votes[player_idx] = Some(vote);
-        self.votes
-            .iter()
-            .take(self.num_players)
-            .all(|c| c.is_some())
     }
 
     /// If all votes are counted, returns the outcome, otherwise returns `None`.

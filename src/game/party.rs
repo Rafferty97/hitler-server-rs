@@ -9,14 +9,6 @@ pub enum Party {
     Fascist,
 }
 
-/// The result of a legislative session
-#[derive(Clone, Copy, Serialize, Deserialize)]
-pub enum LegislationResult {
-    Liberal,
-    Fascist,
-    Veto,
-}
-
 /// Gets a shuffled deck of cards, excluding those already on the board.
 pub fn shuffle_deck(board: &Board) -> Vec<Party> {
     vec![] // FIXME
