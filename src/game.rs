@@ -29,12 +29,6 @@ pub struct Game {
 
 /// The result of attempting to perform an invalid operation on a [Game].
 pub enum GameError {
-    /// Not enough players to start the game.
-    NotEnoughPlayers,
-    /// No more players may join the game.
-    TooManyPlayers,
-    /// A player with the same name has already joined.
-    PlayerWithSameName,
     /// No player exists with the given name.
     PlayerNotFound,
     /// This player cannot be chosen for this action.
