@@ -3,6 +3,7 @@ use crate::ws::accept_connection;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use tokio::net::TcpListener;
 
+mod error;
 mod game;
 mod session;
 mod ws;

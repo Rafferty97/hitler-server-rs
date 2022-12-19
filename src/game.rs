@@ -3,9 +3,9 @@ use self::party::{shuffle_deck, Party};
 use self::player::{Player, Role, RoleAssigner};
 use self::votes::Votes;
 use self::{confirmations::Confirmations, government::Government};
+use crate::error::GameError;
 use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 mod board;
 mod confirmations;
@@ -29,21 +29,6 @@ pub struct Game {
     rng: rand_chacha::ChaCha8Rng,
 }
 
-/// The result of attempting to perform an invalid operation on a [Game].
-#[derive(Error, Debug)]
-pub enum GameError {
-    #[error("cannot have more than 10 players in a game")]
-    TooManyPlayers,
-    #[error("no player exists with the given name")]
-    PlayerNotFound,
-    #[error("this player cannot be chosen for this action")]
-    InvalidPlayerChoice,
-    #[error("this action cannot be performed during this phase of the game")]
-    InvalidAction,
-    #[error("an invalid card was chosen")]
-    InvalidCard,
-}
-
 /// Represents the current phase in the game loop.
 #[derive(Clone, Serialize, Deserialize)]
 enum GameState {
@@ -65,8 +50,10 @@ enum GameState {
         result: Party,
         chaos: bool,
         confirmations: Confirmations,
+        board_ready: bool,
     },
     ExecutiveAction {
+        president: usize,
         action: ExecutiveAction,
         player_chosen: Option<usize>,
     },
@@ -105,6 +92,18 @@ enum ExecutiveAction {
     PolicyPeak,
     /// The president must execute a player.
     Execution,
+}
+
+impl ToString for ExecutiveAction {
+    fn to_string(&self) -> String {
+        match self {
+            ExecutiveAction::InvestigatePlayer => "investigate",
+            ExecutiveAction::SpecialElection => "specialElection",
+            ExecutiveAction::PolicyPeak => "policyPeak",
+            ExecutiveAction::Execution => "execution",
+        }
+        .to_string()
+    }
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
@@ -163,11 +162,11 @@ impl Game {
     }
 
     /// Called when a player clicks the "next" button.
-    pub fn player_next(&mut self, name: &str) -> Result<(), GameError> {
-        let idx = self.get_player_idx(name)?;
+    pub fn player_next(&mut self, player: usize) -> Result<(), GameError> {
+        self.check_player_index(player)?;
         match &mut self.state {
             GameState::Night { confirmations } => {
-                let can_proceed = confirmations.confirm(idx);
+                let can_proceed = confirmations.confirm(player);
                 if can_proceed {
                     self.start_election(None);
                 }
@@ -177,8 +176,9 @@ impl Game {
                 result,
                 confirmations,
                 chaos,
+                ..
             } => {
-                let can_proceed = confirmations.confirm(idx);
+                let can_proceed = confirmations.confirm(player);
                 if can_proceed {
                     let (result, chaos) = (*result, *chaos);
                     self.end_card_reveal(result, chaos);
@@ -191,7 +191,7 @@ impl Game {
 
     /// Called when the board is ready to move on.
     pub fn board_next(&mut self) -> Result<(), GameError> {
-        match &self.state {
+        match &mut self.state {
             GameState::LegislativeSession { turn, .. } => {
                 if let LegislativeSessionTurn::VetoApproved { .. } = turn {
                     self.election_tracker += 1;
@@ -201,10 +201,17 @@ impl Game {
                     Err(GameError::InvalidAction)
                 }
             }
-            GameState::CardReveal { result, chaos, .. } => {
+            GameState::CardReveal {
+                result,
+                chaos,
+                board_ready,
+                ..
+            } => {
+                *board_ready = true;
+                let (result, chaos) = (*result, *chaos);
                 // Skip player confirmations if the game is over
-                if self.board.is_winning_card(*result) {
-                    self.end_card_reveal(*result, *chaos);
+                if self.board.is_winning_card(result) {
+                    self.end_card_reveal(result, chaos);
                 }
                 Ok(())
             }
@@ -213,8 +220,8 @@ impl Game {
     }
 
     /// Called when a player casts their vote.
-    pub fn cast_vote(&mut self, name: &str, vote: bool) -> Result<(), GameError> {
-        let idx = self.get_player_idx(name)?;
+    pub fn cast_vote(&mut self, player: usize, vote: bool) -> Result<(), GameError> {
+        self.check_player_index(player)?;
         match &mut self.state {
             GameState::Election {
                 chancellor, votes, ..
@@ -222,7 +229,7 @@ impl Game {
                 if chancellor.is_none() {
                     return Err(GameError::InvalidAction);
                 }
-                votes.vote(idx, vote);
+                votes.vote(player, vote);
                 Ok(())
             }
             _ => Err(GameError::InvalidAction),
@@ -230,42 +237,44 @@ impl Game {
     }
 
     /// Called when a player chooses another player.
-    pub fn choose_player(&mut self, name: &str, other: &str) -> Result<(), GameError> {
-        let own_idx = self.get_player_idx(name)?;
-        let other_idx = self.get_player_idx(other)?;
-        if own_idx == other_idx {
+    pub fn choose_player(&mut self, player: usize, other: usize) -> Result<(), GameError> {
+        self.check_player_index(player)?;
+        self.check_player_index(other)?;
+        if player == other {
             return Err(GameError::InvalidPlayerChoice);
         }
 
         match &mut self.state {
             GameState::Election {
+                president,
                 chancellor,
                 eligible_chancellors,
                 ..
             } => {
-                if chancellor.is_some() {
+                if player != *president || chancellor.is_some() {
                     return Err(GameError::InvalidAction);
                 }
-                if !eligible_chancellors[other_idx] {
+                if !eligible_chancellors[other] {
                     return Err(GameError::InvalidPlayerChoice);
                 }
-                *chancellor = Some(other_idx);
+                *chancellor = Some(other);
                 Ok(())
             }
             GameState::ExecutiveAction {
+                president,
                 action,
                 player_chosen,
             } => {
-                if player_chosen.is_some() {
+                if player != *president || player_chosen.is_some() {
                     return Err(GameError::InvalidAction);
                 }
                 if *action == ExecutiveAction::PolicyPeak {
                     return Err(GameError::InvalidAction);
                 }
-                if !self.players[other_idx].alive {
+                if !self.players[other].alive {
                     return Err(GameError::InvalidPlayerChoice);
                 }
-                *player_chosen = Some(other_idx);
+                *player_chosen = Some(other);
                 Ok(())
             }
             _ => Err(GameError::InvalidAction),
@@ -305,17 +314,17 @@ impl Game {
     }
 
     /// Called when a player discards a policy from their hand.
-    pub fn discard_policy(&mut self, name: &str, card_idx: usize) -> Result<(), GameError> {
+    pub fn discard_policy(&mut self, player: usize, card_idx: usize) -> Result<(), GameError> {
         use LegislativeSessionTurn::*;
 
-        let idx = self.get_player_idx(name)?;
+        self.check_player_index(player)?;
 
         let GameState::LegislativeSession { president, chancellor, turn } = &mut self.state else {
             return Err(GameError::InvalidAction);
         };
 
         match turn {
-            President { cards } if idx == *president => {
+            President { cards } if player == *president => {
                 let cards = match card_idx {
                     0 => [cards[1], cards[2]],
                     1 => [cards[0], cards[2]],
@@ -331,7 +340,7 @@ impl Game {
                     },
                 };
             }
-            Chancellor { cards, .. } if idx == *chancellor => {
+            Chancellor { cards, .. } if player == *chancellor => {
                 let card = match card_idx {
                     0 => cards[1],
                     1 => cards[0],
@@ -346,10 +355,10 @@ impl Game {
     }
 
     /// Called when the chancellor proposes a veto, or the president consents to a proposed veto.
-    pub fn veto_agenda(&mut self, name: &str) -> Result<(), GameError> {
+    pub fn veto_agenda(&mut self, player: usize) -> Result<(), GameError> {
         use LegislativeSessionTurn::*;
 
-        let idx = self.get_player_idx(name)?;
+        self.check_player_index(player)?;
 
         let GameState::LegislativeSession { president, chancellor, turn } = &mut self.state else {
             return Err(GameError::InvalidAction);
@@ -357,7 +366,7 @@ impl Game {
 
         match turn {
             Chancellor { cards, veto } => {
-                if *veto == VetoStatus::CanVeto && idx == *chancellor {
+                if *veto == VetoStatus::CanVeto && player == *chancellor {
                     *turn = VetoRequested { cards: *cards };
                     Ok(())
                 } else {
@@ -365,7 +374,7 @@ impl Game {
                 }
             }
             VetoRequested { .. } => {
-                if idx == *president {
+                if player == *president {
                     *turn = VetoApproved;
                     Ok(())
                 } else {
@@ -377,8 +386,8 @@ impl Game {
     }
 
     /// Called when the president rejects a proposed veto.
-    pub fn reject_veto(&mut self, name: &str) -> Result<(), GameError> {
-        let idx = self.get_player_idx(name)?;
+    pub fn reject_veto(&mut self, player: usize) -> Result<(), GameError> {
+        self.check_player_index(player)?;
 
         let GameState::LegislativeSession { president, chancellor, turn } = &mut self.state else {
             return Err(GameError::InvalidAction);
@@ -388,7 +397,7 @@ impl Game {
             return Err(GameError::InvalidAction);
         };
 
-        if idx != *president {
+        if player != *president {
             return Err(GameError::InvalidAction);
         }
 
@@ -402,7 +411,7 @@ impl Game {
 
     /// Called when the board has finished presenting the executive action.
     pub fn end_executive_action(&mut self) -> Result<(), GameError> {
-        let GameState::ExecutiveAction { action, player_chosen } = &mut self.state else {
+        let GameState::ExecutiveAction { action, player_chosen, .. } = &mut self.state else {
             return Err(GameError::InvalidAction);
         };
 
@@ -471,6 +480,7 @@ impl Game {
             result: card,
             chaos,
             confirmations: Confirmations::new(self.num_players_alive()),
+            board_ready: false,
         };
         self.election_tracker = 0;
     }
@@ -498,6 +508,8 @@ impl Game {
     fn play_executive_power(&mut self) {
         if let Some(action) = self.board.get_executive_power() {
             self.state = GameState::ExecutiveAction {
+                // There must have been a last government for an executive power to be played
+                president: self.last_government.unwrap().president,
                 action,
                 player_chosen: None,
             };
@@ -560,12 +572,13 @@ impl Game {
         self.players.iter().filter(|p| p.alive).count()
     }
 
-    /// Gets the index of the player with the given name.
-    fn get_player_idx(&self, name: &str) -> Result<usize, GameError> {
-        self.players
-            .iter()
-            .position(|p| p.name == name)
-            .ok_or(GameError::PlayerNotFound)
+    /// Returns `Ok` if the given player index is valid, and an `Err` otherwise.
+    fn check_player_index(&self, player: usize) -> Result<(), GameError> {
+        if player < self.num_players() {
+            Ok(())
+        } else {
+            Err(GameError::InvalidPlayerIndex)
+        }
     }
 
     /// Finds the next alive player.

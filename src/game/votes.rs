@@ -14,6 +14,11 @@ impl Votes {
         Self { num_players, votes }
     }
 
+    /// Returns whether the given player has cast their vote.
+    pub fn has_cast(&self, player_idx: usize) -> bool {
+        self.votes[player_idx].is_some()
+    }
+
     /// Records the vote of a player.
     pub fn vote(&mut self, player_idx: usize, vote: bool) {
         self.votes[player_idx] = Some(vote);

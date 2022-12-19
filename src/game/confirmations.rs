@@ -15,6 +15,11 @@ impl Confirmations {
         Self { num_players, state }
     }
 
+    /// Returns whether or not the given player has registered their acknowledgement.
+    pub fn has_confirmed(&self, player_idx: usize) -> bool {
+        self.state[player_idx]
+    }
+
     /// Records the acknowledgement of a player, and returns `true` iff the game can now proceed.
     pub fn confirm(&mut self, player_idx: usize) -> bool {
         self.state[player_idx] = true;
