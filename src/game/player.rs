@@ -12,11 +12,22 @@ pub struct Player {
     pub investigated: bool,
 }
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Role {
     Liberal,
     Fascist,
     Hitler,
+}
+
+impl ToString for Role {
+    fn to_string(&self) -> String {
+        match self {
+            Role::Liberal => "Liberal",
+            Role::Fascist => "Fascist",
+            Role::Hitler => "Hitler",
+        }
+        .to_string()
+    }
 }
 
 impl Player {

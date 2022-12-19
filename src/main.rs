@@ -1,3 +1,4 @@
+use crate::session::SessionManager;
 use crate::ws::accept_connection;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use tokio::net::TcpListener;
@@ -25,7 +26,9 @@ async fn main() {
     };
     log::info!("Listening on: {:?}", addr);
 
+    let manager = Box::<SessionManager>::leak(Default::default());
+
     while let Ok((stream, _)) = listener.accept().await {
-        tokio::spawn(accept_connection(stream));
+        tokio::spawn(accept_connection(stream, manager));
     }
 }

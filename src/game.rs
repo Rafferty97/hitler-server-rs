@@ -5,10 +5,12 @@ use self::votes::Votes;
 use self::{confirmations::Confirmations, government::Government};
 use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 mod board;
 mod confirmations;
 mod government;
+mod json;
 mod party;
 mod player;
 mod test;
@@ -28,14 +30,17 @@ pub struct Game {
 }
 
 /// The result of attempting to perform an invalid operation on a [Game].
+#[derive(Error, Debug)]
 pub enum GameError {
-    /// No player exists with the given name.
+    #[error("cannot have more than 10 players in a game")]
+    TooManyPlayers,
+    #[error("no player exists with the given name")]
     PlayerNotFound,
-    /// This player cannot be chosen for this action.
+    #[error("this player cannot be chosen for this action")]
     InvalidPlayerChoice,
-    /// This action cannot be performed during this phase of the game.
+    #[error("this action cannot be performed during this phase of the game")]
     InvalidAction,
-    /// An invalid card was chosen.
+    #[error("an invalid card was chosen")]
     InvalidCard,
 }
 
@@ -110,6 +115,16 @@ enum WinCondition {
     Hitler,
 }
 
+impl ToString for WinCondition {
+    fn to_string(&self) -> String {
+        match self {
+            WinCondition::Legislative => "legislative",
+            WinCondition::Hitler => "hitler",
+        }
+        .to_string()
+    }
+}
+
 impl Game {
     /// Creates a new game of Secret Hitler.
     pub fn new<'a>(player_names: &[String], seed: u64) -> Self {
@@ -130,7 +145,7 @@ impl Game {
 
         // Create the board; shuffle the deck
         let board = Board::new(num_players);
-        let deck = shuffle_deck(&board);
+        let deck = shuffle_deck(&board, &mut rng);
 
         // Return the new game
         Game {
@@ -493,7 +508,7 @@ impl Game {
 
     fn check_deck(&mut self) {
         if self.deck.len() < 3 {
-            self.deck = shuffle_deck(&self.board);
+            self.deck = shuffle_deck(&self.board, &mut self.rng);
         }
     }
 
@@ -510,12 +525,15 @@ impl Game {
         // Check whether Hitler was elected chancellor
         if self.board.fascist_cards >= 3 {
             if let GameState::LegislativeSession { chancellor, .. } = &self.state {
-                if self.players[*chancellor].role == Role::Hitler {
+                let player = &mut self.players[*chancellor];
+                if player.role == Role::Hitler {
                     self.state = GameState::GameOver {
                         winner: Party::Fascist,
                         win_condition: WinCondition::Hitler,
                     };
                     return true;
+                } else {
+                    player.not_hitler = true;
                 }
             }
         }

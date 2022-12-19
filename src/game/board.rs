@@ -1,9 +1,5 @@
+use super::{party::Party, ExecutiveAction};
 use serde::{Deserialize, Serialize};
-
-use super::{
-    party::{self, Party},
-    ExecutiveAction,
-};
 
 const MAX_LIBERAL_CARDS: usize = 5;
 const MAX_FASCIST_CARDS: usize = 6;

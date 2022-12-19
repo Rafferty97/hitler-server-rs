@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.66"
+chashmap = "2.2.2"
 dotenv = "0.15.0"
 env_logger = "0.10.0"
 futures-util = "0.3.25"
