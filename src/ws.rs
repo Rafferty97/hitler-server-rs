@@ -54,7 +54,6 @@ pub async fn accept_connection(stream: TcpStream, manager: &SessionManager) {
                             "error": err.to_string()
                         });
                         write.send(Message::Text(reply.to_string())).await.ok();
-                        break;
                     }
                 }
             },
@@ -120,7 +119,7 @@ fn parse_request(req: &Value) -> Result<Request, WsError> {
                 .as_str()
                 .or_else(|| req["playerId"].as_str())
                 .ok_or(WsError::ProtocolError)?
-                .to_string();
+                .to_ascii_uppercase();
             Ok(Request::JoinAsPlayer { game_id, name })
         }
         "board_next" => Ok(Request::BoardNext),

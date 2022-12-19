@@ -1,25 +1,30 @@
 use crate::{error::GameError, game::Game};
-use chashmap::CHashMap;
-use rand::RngCore;
+use dashmap::{mapref::entry::Entry, DashMap};
+use rand::{Rng, RngCore};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
 use tokio::sync::watch;
 
 #[derive(Default)]
 pub struct SessionManager {
-    sessions: CHashMap<String, SessionHandle>,
+    sessions: DashMap<String, SessionHandle>,
 }
 
 pub type SessionHandle = Arc<Mutex<Session>>;
 
 impl SessionManager {
     pub fn create_game(&self) -> SessionHandle {
-        // FIXME
-        let id = "AAAA".to_string();
-        let session = Session::new(id.clone());
-        let session = Arc::new(Mutex::new(session));
-        self.sessions.insert(id, session.clone());
-        session
+        loop {
+            let id = Self::random_id();
+            let entry = self.sessions.entry(id);
+            if let Entry::Occupied(_) = entry {
+                continue;
+            }
+            let session = Session::new(entry.key().clone());
+            let session = Arc::new(Mutex::new(session));
+            entry.or_insert(session.clone());
+            break session;
+        }
     }
 
     pub fn find_game(&self, game_id: &str) -> Result<SessionHandle, GameError> {
@@ -27,6 +32,11 @@ impl SessionManager {
             .get(game_id)
             .map(|session| session.clone())
             .ok_or(GameError::GameNotFound)
+    }
+
+    fn random_id() -> String {
+        let mut rng = rand::thread_rng();
+        (0..4).map(|_| rng.gen_range('A'..='Z')).collect()
     }
 }
 
