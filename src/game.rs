@@ -83,7 +83,7 @@ enum VetoStatus {
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-enum ExecutiveAction {
+pub enum ExecutiveAction {
     /// The president must investigate a player's loyalty.
     InvestigatePlayer,
     /// The president must call a special election.
@@ -161,6 +161,14 @@ impl Game {
         }
     }
 
+    /// Finds a player with the given name.
+    pub fn find_player(&self, name: &str) -> Result<usize, GameError> {
+        self.players
+            .iter()
+            .position(|p| p.name == name)
+            .ok_or(GameError::PlayerNotFound)
+    }
+
     /// Called when a player clicks the "next" button.
     pub fn player_next(&mut self, player: usize) -> Result<(), GameError> {
         self.check_player_index(player)?;
@@ -192,6 +200,7 @@ impl Game {
     /// Called when the board is ready to move on.
     pub fn board_next(&mut self) -> Result<(), GameError> {
         match &mut self.state {
+            GameState::Election { .. } => self.end_voting(),
             GameState::LegislativeSession { turn, .. } => {
                 if let LegislativeSessionTurn::VetoApproved { .. } = turn {
                     self.election_tracker += 1;

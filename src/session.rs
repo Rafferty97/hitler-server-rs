@@ -73,7 +73,7 @@ impl Session {
         &self.id
     }
 
-    pub fn get_player(&mut self, name: &str) -> Result<usize, GameError> {
+    pub fn get_or_insert_player(&mut self, name: &str) -> Result<usize, GameError> {
         if let Some(idx) = self.players.iter().position(|player| player.name == name) {
             return Ok(idx);
         }
@@ -103,6 +103,7 @@ impl Session {
 
     fn notify(&self) {
         if let Some(game) = self.game.as_ref() {
+            log::debug!("Game state: {:?}", serde_json::to_string(&game));
             // A game is in session
             self.board_state.send_replace(game.get_board_json());
             for (idx, player) in self.players.iter().enumerate() {
@@ -169,7 +170,7 @@ impl<'a> Client<'a> {
         let session = self.manager.find_game(game_id)?;
         {
             let mut session = session.lock().unwrap();
-            let player = session.get_player(name)?;
+            let player = session.get_or_insert_player(name)?;
             self.state = Some(session.join_player(player));
             self.player = Some(player);
         }
@@ -225,10 +226,33 @@ impl<'a> Client<'a> {
 
     /// Called when a player is ready to move on.
     pub fn player_next(&self) -> Result<(), GameError> {
-        let Some(player) = self.player else {
-            return Err(GameError::InvalidAction);
-        };
+        let player = self.player.ok_or(GameError::InvalidAction)?;
         self.mutate_game(|game| game.player_next(player))
+    }
+
+    /// Called when a player chooses another player.
+    pub fn choose_player(&self, name: &str) -> Result<(), GameError> {
+        let player = self.player.ok_or(GameError::InvalidAction)?;
+        self.mutate_game(|game| {
+            let other = game.find_player(name)?;
+            game.choose_player(player, other)
+        })
+    }
+
+    /// Called when a player casts a vote.
+    pub fn cast_vote(&self, vote: bool) -> Result<(), GameError> {
+        let player = self.player.ok_or(GameError::InvalidAction)?;
+        self.mutate_game(|game| game.cast_vote(player, vote))
+    }
+
+    pub fn discard(&self, card_idx: usize) -> Result<(), GameError> {
+        let player = self.player.ok_or(GameError::InvalidAction)?;
+        self.mutate_game(|game| game.discard_policy(player, card_idx))
+    }
+
+    pub fn veto_agenda(&self) -> Result<(), GameError> {
+        let player = self.player.ok_or(GameError::InvalidAction)?;
+        self.mutate_game(|game| game.veto_agenda(player))
     }
 
     fn mutate_game(

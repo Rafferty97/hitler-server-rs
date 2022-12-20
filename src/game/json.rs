@@ -141,11 +141,11 @@ impl Game {
             ExecutiveAction {
                 action,
                 player_chosen,
-                president,
+                ..
             } => json!({
                 "type": "executiveAction",
                 "action": match action {
-                    Investigate => "investigate",
+                    InvestigatePlayer => "investigate",
                     SpecialElection => "specialElection",
                     PolicyPeak => "policyPeak",
                     Execution => "execution"

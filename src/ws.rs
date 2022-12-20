@@ -58,10 +58,7 @@ pub async fn accept_connection(stream: TcpStream, manager: &SessionManager) {
                 }
             },
             state = client.next_state().fuse() => {
-                let reply = json!({
-                    "type": "update",
-                    "state": state
-                });
+                let reply = format_reply(Response::Update { state });
                 if write.send(Message::Text(reply.to_string())).await.is_err() {
                     log::error!("Could not send websockets message");
                     break;
@@ -85,6 +82,10 @@ enum Request {
 enum PlayerAction {
     StartGame,
     ClickNext,
+    ChoosePlayer { name: String },
+    CastVote { vote: bool },
+    Discard { index: usize },
+    VetoAgenda,
 }
 
 /// A message sent by the server to a game client.
@@ -96,29 +97,27 @@ enum Response {
         game_id: String,
         player_id: Option<String>,
     },
-    Error(WsError),
+    Update {
+        state: Value,
+    },
 }
 
 /// Parses a websockets message from the client.
 fn parse_request(req: &Value) -> Result<Request, WsError> {
+    use WsError::ProtocolError as PE;
+
     match req["type"].as_str().unwrap_or("") {
         "create_game" => Ok(Request::CreateGame),
         "board_join" => {
-            let game_id = req["gameId"]
-                .as_str()
-                .ok_or(WsError::ProtocolError)?
-                .to_string();
+            let game_id = req["gameId"].as_str().ok_or(PE)?.to_string();
             Ok(Request::JoinAsBoard { game_id })
         }
         "player_join" => {
-            let game_id = req["gameId"]
-                .as_str()
-                .ok_or(WsError::ProtocolError)?
-                .to_string();
+            let game_id = req["gameId"].as_str().ok_or(PE)?.to_string();
             let name = req["name"]
                 .as_str()
                 .or_else(|| req["playerId"].as_str())
-                .ok_or(WsError::ProtocolError)?
+                .ok_or(PE)?
                 .to_ascii_uppercase();
             Ok(Request::JoinAsPlayer { game_id, name })
         }
@@ -128,12 +127,28 @@ fn parse_request(req: &Value) -> Result<Request, WsError> {
             let action = match action {
                 "lobby" => PlayerAction::StartGame,
                 "nightRound" => PlayerAction::ClickNext,
-                _ => return Err(WsError::ProtocolError),
+                "choosePlayer" => {
+                    let name = req["data"].as_str().ok_or(PE)?.to_string();
+                    PlayerAction::ChoosePlayer { name }
+                }
+                "vote" => {
+                    let vote = req["data"].as_bool().ok_or(PE)?;
+                    PlayerAction::CastVote { vote }
+                }
+                "legislative" => match req["data"]["type"].as_str() {
+                    Some("discard") => PlayerAction::Discard {
+                        index: req["data"]["idx"].as_u64().ok_or(PE)? as usize,
+                    },
+                    Some("veto") => PlayerAction::VetoAgenda,
+                    _ => return Err(PE),
+                },
+                "nextRound" => PlayerAction::ClickNext,
+                _ => return Err(PE),
             };
             Ok(Request::PlayerAction(action))
         }
         "get_state" => Ok(Request::GetState),
-        _ => Err(WsError::ProtocolError),
+        _ => Err(PE),
     }
 }
 
@@ -164,6 +179,10 @@ fn process_request(req: Request, client: &mut Client) -> Result<Option<Response>
         Request::PlayerAction(action) => match action {
             PlayerAction::StartGame => client.start_game()?,
             PlayerAction::ClickNext => client.player_next()?,
+            PlayerAction::ChoosePlayer { name } => client.choose_player(&name)?,
+            PlayerAction::CastVote { vote } => client.cast_vote(vote)?,
+            PlayerAction::Discard { index } => client.discard(index)?,
+            PlayerAction::VetoAgenda => client.veto_agenda()?,
         },
         _ => {}
     }
@@ -181,6 +200,10 @@ fn format_reply(res: Response) -> Value {
             "type": "game_joined",
             "gameId": game_id,
             "playerId": player_id
+        }),
+        Response::Update { state } => json!({
+            "type": "update",
+            "state": state
         }),
         _ => unimplemented!(),
     }
