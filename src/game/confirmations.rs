@@ -23,6 +23,11 @@ impl Confirmations {
     /// Records the acknowledgement of a player, and returns `true` iff the game can now proceed.
     pub fn confirm(&mut self, player_idx: usize) -> bool {
         self.state[player_idx] = true;
+        self.can_proceed()
+    }
+
+    /// Returns `true` iff the game can now proceed.
+    pub fn can_proceed(&self) -> bool {
         self.state.iter().take(self.num_players).all(|c| *c)
     }
 }

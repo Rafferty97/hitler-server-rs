@@ -1,8 +1,10 @@
 const WebSocket = require('websocket').client
 
+const ACTION_DELAY = 3000 // 3 secs
+
 async function main() {
   const url = 'ws://localhost:8888/'
-  const players = ['ALEX', 'BOB', 'CHARLIE', 'DAVID', 'ED']
+  const players = ['BOB', 'CHARLIE', 'DAVID', 'ED', 'FRED', 'GEORGE']
   const gameId = process.argv[2]
   
   if (!/[A-Z]{4}/.test(gameId)) {
@@ -27,7 +29,7 @@ async function createPlayer(url, gameId, name) {
       conn.on('message', msg => {
         const data = JSON.parse(msg.utf8Data)
         if (data.type == 'error') {
-          console.error(data.error)
+          console.error('Error: ' + data.error)
         }
         if (data.type !== 'update') return
         const action = data.state.action?.type
@@ -36,7 +38,7 @@ async function createPlayer(url, gameId, name) {
           const reply = react(data.state)
           if (reply == null) return
           conn.send(JSON.stringify({ type: 'player_action', action, data: reply }))
-        }, 1000)
+        }, ACTION_DELAY)
       })
       conn.on('close', reconnect)
     })
@@ -67,7 +69,7 @@ function react(msg) {
     return players[choice].id
   }
   if (action.type == 'vote') {
-    return Math.random() < 0.5 // 70% chance of "ja"
+    return Math.random() < 0.5
   }
   if (action.type == 'legislative') {
     if (action.canVeto && Math.random() < 0.5) {
@@ -79,8 +81,20 @@ function react(msg) {
   if (action.type == 'nextRound') {
     return 'next'
   }
+  if (action.type == 'policyPeak') {
+    return 'done'
+  }
+  if (action.type == 'investigateParty') {
+    console.log(`${players[action.player].name} is a ${action.party}`)
+    return 'done'
+  }
+  if (action.type == 'vetoConsent') {
+    return Math.random() < 0.5
+  }
+  if (action.type == 'gameover') {
+    return 'restart'
+  }
   console.error(`Unknown action type: ${action.type}`)
-  // todo
 }
 
 function wait(ms) {

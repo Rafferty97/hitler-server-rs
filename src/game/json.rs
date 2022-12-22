@@ -241,6 +241,7 @@ impl Game {
                 president,
                 action,
                 player_chosen,
+                eligible_players,
             } => {
                 use super::ExecutiveAction::*;
                 if idx != *president {
@@ -255,11 +256,16 @@ impl Game {
                     (Execution | InvestigatePlayer | SpecialElection, None) => json!({
                         "type": "choosePlayer",
                         "subtype": action.to_string(),
-                        "players": [] // FIXME
+                        "players": (0..self.num_players())
+                            .filter(|i| eligible_players[*i])
+                            .collect::<Value>()
                     }),
                     (PolicyPeak, None) => json!({
                         "type": "policyPeak",
-                        "cards": self.deck[self.deck.len() - 3..].iter().map(Party::to_string).collect::<Value>()
+                        "cards": self.deck[self.deck.len() - 3..]
+                            .iter()
+                            .map(Party::to_string)
+                            .collect::<Value>()
                     }),
                     _ => Value::Null,
                 }

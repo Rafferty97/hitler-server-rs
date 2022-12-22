@@ -7,6 +7,8 @@ pub enum GameError {
     GameNotFound,
     #[error("cannot have more than 10 players in a game")]
     TooManyPlayers,
+    #[error("cannot join a game that has already started")]
+    CannotJoinStartedGame,
     #[error("no player exists with the given name")]
     PlayerNotFound,
     #[error("this player cannot be chosen for this action")]

@@ -1,6 +1,6 @@
 use crate::{
     error::GameError,
-    session::{Client, SessionManager},
+    session::{Client, PlayerAction, SessionManager},
 };
 use futures_util::{select, FutureExt, SinkExt, StreamExt, TryStreamExt};
 use serde_json::{json, Value};
@@ -73,19 +73,10 @@ enum Request {
     CreateGame,
     JoinAsBoard { game_id: String },
     JoinAsPlayer { game_id: String, name: String },
-    BoardNext,
+    StartGame,
+    BoardNext { state: String },
     PlayerAction(PlayerAction),
     GetState,
-}
-
-/// An action performed by the player.
-enum PlayerAction {
-    StartGame,
-    ClickNext,
-    ChoosePlayer { name: String },
-    CastVote { vote: bool },
-    Discard { index: usize },
-    VetoAgenda,
 }
 
 /// A message sent by the server to a game client.
@@ -121,12 +112,14 @@ fn parse_request(req: &Value) -> Result<Request, WsError> {
                 .to_ascii_uppercase();
             Ok(Request::JoinAsPlayer { game_id, name })
         }
-        "board_next" => Ok(Request::BoardNext),
+        "board_next" => Ok(Request::BoardNext {
+            state: req["state"].as_str().unwrap_or("").to_string(),
+        }),
         "player_action" => {
             let action = req["action"].as_str().unwrap_or("");
             let action = match action {
-                "lobby" => PlayerAction::StartGame,
-                "nightRound" => PlayerAction::ClickNext,
+                "lobby" => return Ok(Request::StartGame),
+                "nightRound" => PlayerAction::EndNightRound,
                 "choosePlayer" => {
                     let name = req["data"].as_str().ok_or(PE)?.to_string();
                     PlayerAction::ChoosePlayer { name }
@@ -142,7 +135,13 @@ fn parse_request(req: &Value) -> Result<Request, WsError> {
                     Some("veto") => PlayerAction::VetoAgenda,
                     _ => return Err(PE),
                 },
-                "nextRound" => PlayerAction::ClickNext,
+                "nextRound" => PlayerAction::EndCardReveal,
+                "policyPeak" => PlayerAction::EndExecutiveAction,
+                "investigateParty" => PlayerAction::EndExecutiveAction,
+                "gameover" => match req["data"].as_str() {
+                    Some("restart") => return Ok(Request::StartGame),
+                    _ => return Err(PE),
+                },
                 _ => return Err(PE),
             };
             Ok(Request::PlayerAction(action))
@@ -173,17 +172,11 @@ fn process_request(req: Request, client: &mut Client) -> Result<Option<Response>
                 player_id: Some(name),
             }));
         }
-        Request::BoardNext => {
-            client.board_next()?;
+        Request::BoardNext { state } => {
+            client.board_next(&state)?;
         }
-        Request::PlayerAction(action) => match action {
-            PlayerAction::StartGame => client.start_game()?,
-            PlayerAction::ClickNext => client.player_next()?,
-            PlayerAction::ChoosePlayer { name } => client.choose_player(&name)?,
-            PlayerAction::CastVote { vote } => client.cast_vote(vote)?,
-            PlayerAction::Discard { index } => client.discard(index)?,
-            PlayerAction::VetoAgenda => client.veto_agenda()?,
-        },
+        Request::StartGame => client.start_game()?,
+        Request::PlayerAction(action) => client.player_action(action)?,
         _ => {}
     }
     Ok(None)

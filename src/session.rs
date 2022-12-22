@@ -78,6 +78,10 @@ impl Session {
             return Ok(idx);
         }
 
+        if self.game.is_some() {
+            return Err(GameError::CannotJoinStartedGame);
+        }
+
         if self.players.len() == 10 {
             return Err(GameError::TooManyPlayers);
         }
@@ -136,6 +140,17 @@ pub struct Client<'a> {
     session: Option<Arc<Mutex<Session>>>,
     player: Option<usize>,
     state: Option<watch::Receiver<Value>>,
+}
+
+/// An action performed by the player.
+pub enum PlayerAction {
+    EndNightRound,
+    EndCardReveal,
+    EndExecutiveAction,
+    ChoosePlayer { name: String },
+    CastVote { vote: bool },
+    Discard { index: usize },
+    VetoAgenda,
 }
 
 impl<'a> Client<'a> {
@@ -217,42 +232,34 @@ impl<'a> Client<'a> {
     }
 
     /// Called when the board is ready to move on.
-    pub fn board_next(&self) -> Result<(), GameError> {
+    pub fn board_next(&self, state: &str) -> Result<(), GameError> {
         if self.player.is_some() {
             return Err(GameError::InvalidAction);
         }
-        self.mutate_game(|game| game.board_next())
-    }
-
-    /// Called when a player is ready to move on.
-    pub fn player_next(&self) -> Result<(), GameError> {
-        let player = self.player.ok_or(GameError::InvalidAction)?;
-        self.mutate_game(|game| game.player_next(player))
-    }
-
-    /// Called when a player chooses another player.
-    pub fn choose_player(&self, name: &str) -> Result<(), GameError> {
-        let player = self.player.ok_or(GameError::InvalidAction)?;
-        self.mutate_game(|game| {
-            let other = game.find_player(name)?;
-            game.choose_player(player, other)
+        self.mutate_game(|game| match state {
+            "election" => game.end_voting(),
+            "cardReveal" => game.end_card_reveal(None),
+            "executiveAction" => game.end_executive_action(None),
+            "legislativeSession" => game.end_legislative_session(),
+            _ => Err(GameError::InvalidAction),
         })
     }
 
-    /// Called when a player casts a vote.
-    pub fn cast_vote(&self, vote: bool) -> Result<(), GameError> {
+    /// Called when a player performs an action.
+    pub fn player_action(&self, action: PlayerAction) -> Result<(), GameError> {
         let player = self.player.ok_or(GameError::InvalidAction)?;
-        self.mutate_game(|game| game.cast_vote(player, vote))
-    }
-
-    pub fn discard(&self, card_idx: usize) -> Result<(), GameError> {
-        let player = self.player.ok_or(GameError::InvalidAction)?;
-        self.mutate_game(|game| game.discard_policy(player, card_idx))
-    }
-
-    pub fn veto_agenda(&self) -> Result<(), GameError> {
-        let player = self.player.ok_or(GameError::InvalidAction)?;
-        self.mutate_game(|game| game.veto_agenda(player))
+        self.mutate_game(|game| match &action {
+            PlayerAction::EndNightRound => game.end_night_round(player),
+            PlayerAction::EndCardReveal => game.end_card_reveal(Some(player)),
+            PlayerAction::EndExecutiveAction => game.end_executive_action(Some(player)),
+            PlayerAction::CastVote { vote } => game.cast_vote(player, *vote),
+            PlayerAction::ChoosePlayer { name } => {
+                let other = game.find_player(name)?;
+                game.choose_player(player, other)
+            }
+            PlayerAction::Discard { index } => game.discard_policy(player, *index),
+            PlayerAction::VetoAgenda => game.veto_agenda(player),
+        })
     }
 
     fn mutate_game(
