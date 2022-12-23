@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use super::party::Party;
 
 /// A game player.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Player {
     pub name: String,
     pub role: Role,
@@ -12,7 +12,7 @@ pub struct Player {
     pub investigated: bool,
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum Role {
     Liberal,
     Fascist,

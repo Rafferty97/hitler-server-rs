@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Tracks the vote of each player.
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Serialize, Deserialize, Debug)]
 pub struct Votes {
     num_players: usize,
     votes: [Option<bool>; 10],
@@ -33,6 +33,6 @@ impl Votes {
 
     /// Gets the votes of each player.
     pub fn votes(&self) -> &[Option<bool>] {
-        &self.votes[..self.num_players]
+        &self.votes
     }
 }

@@ -17,7 +17,7 @@ mod test;
 mod votes;
 
 /// A game of Secret Hitler.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Game {
     players: Vec<Player>,
     board: Board,
@@ -30,7 +30,7 @@ pub struct Game {
 }
 
 /// Represents the current phase in the game loop.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 enum GameState {
     Night {
         confirmations: Confirmations,
@@ -64,7 +64,7 @@ enum GameState {
     },
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Serialize, Deserialize, Debug)]
 enum LegislativeSessionTurn {
     /// President must discard a card.
     President { cards: [Party; 3] },
@@ -76,14 +76,14 @@ enum LegislativeSessionTurn {
     VetoApproved,
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Debug)]
 enum VetoStatus {
     CannotVeto,
     CanVeto,
     VetoDenied,
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub enum ExecutiveAction {
     /// The president must investigate a player's loyalty.
     InvestigatePlayer,
@@ -107,7 +107,7 @@ impl ToString for ExecutiveAction {
     }
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Serialize, Deserialize, Debug)]
 enum WinCondition {
     /// The winning team completed their policy track.
     Legislative,

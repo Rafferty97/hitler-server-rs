@@ -3,7 +3,7 @@ use rand::{seq::SliceRandom, Rng};
 use serde::{Deserialize, Serialize};
 
 /// The two political parties of the game.
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Serialize, Deserialize, Debug)]
 pub enum Party {
     Liberal,
     Fascist,

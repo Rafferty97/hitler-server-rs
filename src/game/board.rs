@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 const MAX_LIBERAL_CARDS: usize = 5;
 const MAX_FASCIST_CARDS: usize = 6;
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Board {
     pub num_players: usize,
     pub liberal_cards: usize,

@@ -2,14 +2,15 @@ use serde::{Deserialize, Serialize};
 
 /// Tracks the acknowledgement status of each player,
 /// such that game play can only proceed once all players have elected to move on.
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Serialize, Deserialize, Debug)]
 pub struct Confirmations {
     num_players: usize,
     state: [bool; 10],
 }
 
 impl Confirmations {
-    /// Creates a new `Confirmations`.
+    /// Creates a new `Confirmations`,
+    /// where `num_players` is the number of confirmations needed to proceed.
     pub fn new(num_players: usize) -> Self {
         let state = [false; 10];
         Self { num_players, state }
@@ -28,6 +29,6 @@ impl Confirmations {
 
     /// Returns `true` iff the game can now proceed.
     pub fn can_proceed(&self) -> bool {
-        self.state.iter().take(self.num_players).all(|c| *c)
+        self.state.iter().filter(|c| **c).count() >= self.num_players
     }
 }
