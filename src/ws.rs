@@ -174,7 +174,8 @@ fn process_request(req: Request, client: &mut Client) -> Result<Option<Response>
             }));
         }
         Request::BoardNext { state } => {
-            client.board_next(&state)?;
+            // Explicitely ignore errors as they will occur when there is more than one game board.
+            client.board_next(&state).ok();
         }
         Request::StartGame => client.start_game()?,
         Request::PlayerAction(action) => client.player_action(action)?,

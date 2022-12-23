@@ -236,10 +236,11 @@ impl Game {
         let GameState::LegislativeSession { turn, .. } = &mut self.state else {
             return Err(GameError::InvalidAction);
         };
-        let LegislativeSessionTurn::VetoApproved { .. } = turn else {
+        let LegislativeSessionTurn::VetoApproved = turn else {
             return Err(GameError::InvalidAction);
         };
         self.election_tracker += 1;
+        self.check_deck();
         self.start_election(None);
         Ok(())
     }

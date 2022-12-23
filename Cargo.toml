@@ -2,15 +2,6 @@
 name = "hitler-server-rs"
 version = "0.1.0"
 edition = "2021"
-default-run = "hitler-server"
-
-[[bin]]
-name = "hitler-server"
-path = "src/main.rs"
-
-[[bin]]
-name = "ai"
-path = "src/bin/ai.rs"
 
 [dependencies]
 anyhow = "1.0.66"
