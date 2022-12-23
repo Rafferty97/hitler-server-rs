@@ -81,7 +81,7 @@ impl Game {
             .collect()
     }
 
-    pub fn get_lobby_players_json<'a>(players: &[String]) -> Value {
+    pub fn get_lobby_players_json(players: &[String]) -> Value {
         players
             .iter()
             .map(|name| {

@@ -28,7 +28,7 @@ impl Votes {
     pub fn outcome(&self) -> Option<bool> {
         let yes = self.votes.iter().filter(|v| **v == Some(true)).count();
         let no = self.votes.iter().filter(|v| **v == Some(false)).count();
-        (yes + no >= self.num_players).then(|| yes > no)
+        (yes + no >= self.num_players).then_some(yes > no)
     }
 
     /// Gets the votes of each player.

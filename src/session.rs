@@ -2,17 +2,38 @@ use crate::{error::GameError, game::Game};
 use dashmap::{mapref::entry::Entry, DashMap};
 use rand::{Rng, RngCore};
 use serde_json::Value;
+use sled::IVec;
+use std::error::Error;
 use std::sync::{Arc, Mutex};
 use tokio::sync::watch;
 
-#[derive(Default)]
 pub struct SessionManager {
     sessions: DashMap<String, SessionHandle>,
+    db: sled::Tree,
 }
 
 pub type SessionHandle = Arc<Mutex<Session>>;
 
 impl SessionManager {
+    pub fn new(db: sled::Tree) -> Self {
+        let sessions = DashMap::new();
+        let load = |entry: Result<(IVec, IVec), _>| {
+            let (id, game) = entry?;
+            let id = String::from_utf8(id.to_vec())?;
+            let game = serde_json::from_slice(&game)?;
+            let session = Session::new(id.clone(), db.clone(), game);
+            let session = Arc::new(Mutex::new(session));
+            sessions.insert(id, session);
+            Ok(())
+        };
+        for entry in db.iter() {
+            load(entry).unwrap_or_else(|err: Box<dyn Error>| {
+                log::error!("Error loading game: {:?}", err);
+            });
+        }
+        Self { sessions, db }
+    }
+
     pub fn create_game(&self) -> SessionHandle {
         loop {
             let id = Self::random_id();
@@ -20,7 +41,7 @@ impl SessionManager {
             if let Entry::Occupied(_) = entry {
                 continue;
             }
-            let session = Session::new(entry.key().clone());
+            let session = Session::new(entry.key().clone(), self.db.clone(), None);
             let session = Arc::new(Mutex::new(session));
             entry.or_insert(session.clone());
             break session;
@@ -32,6 +53,10 @@ impl SessionManager {
             .get(game_id)
             .map(|session| session.clone())
             .ok_or(GameError::GameNotFound)
+    }
+
+    pub fn num_games(&self) -> usize {
+        self.sessions.len()
     }
 
     fn random_id() -> String {
@@ -49,23 +74,28 @@ pub struct Session {
     game: Option<Game>,
     /// Channel for sending board state updates.
     board_state: watch::Sender<Value>,
-}
-
-struct Player {
-    /// The player name.
-    name: String,
-    /// Channel for sending player state updates.
-    player_state: watch::Sender<Value>,
+    /// The database the game should be persisted to.
+    db: sled::Tree,
 }
 
 /// Represents an active Secret Hitler game.
 impl Session {
-    pub fn new(id: String) -> Self {
+    pub fn new(id: String, db: sled::Tree, game: Option<Game>) -> Self {
+        let players = game
+            .as_ref()
+            .map(|g| {
+                g.player_names()
+                    .map(|name| Player::new(name.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let board_state = watch::channel(Value::Null).0;
         Self {
             id,
-            players: vec![],
-            game: None,
-            board_state: watch::channel(Value::Null).0,
+            players,
+            game,
+            board_state,
+            db,
         }
     }
 
@@ -107,7 +137,6 @@ impl Session {
 
     fn notify(&self) {
         if let Some(game) = self.game.as_ref() {
-            log::debug!("Game state: {:?}", serde_json::to_string(&game));
             // A game is in session
             self.board_state.send_replace(game.get_board_json());
             for (idx, player) in self.players.iter().enumerate() {
@@ -126,11 +155,35 @@ impl Session {
         }
     }
 
+    fn persist_game(&self) -> Result<(), Box<dyn Error>> {
+        self.db.insert(
+            self.id.as_bytes(),
+            serde_json::to_string(&self.game)?.as_bytes(),
+        )?;
+        Ok(())
+    }
+
     fn player_names(&self) -> Vec<String> {
         self.players
             .iter()
             .map(|p| p.name.to_string())
             .collect::<Vec<_>>()
+    }
+}
+
+struct Player {
+    /// The player name.
+    name: String,
+    /// Channel for sending player state updates.
+    player_state: watch::Sender<Value>,
+}
+
+impl Player {
+    fn new(name: String) -> Self {
+        Self {
+            name,
+            player_state: watch::channel(Value::Null).0,
+        }
     }
 }
 
@@ -151,6 +204,8 @@ pub enum PlayerAction {
     CastVote { vote: bool },
     Discard { index: usize },
     VetoAgenda,
+    AcceptVeto,
+    RejectVeto,
 }
 
 impl<'a> Client<'a> {
@@ -193,15 +248,6 @@ impl<'a> Client<'a> {
         Ok(())
     }
 
-    /// Gets the current state of the game, from the board or player's perspective.
-    pub fn state(&self) -> Value {
-        if let Some(state) = &self.state {
-            state.borrow().clone()
-        } else {
-            Value::Null
-        }
-    }
-
     /// Waits until there is an update to the game state, then returns the latest state.
     pub async fn next_state(&mut self) -> Value {
         if let Some(state) = &mut self.state {
@@ -227,6 +273,7 @@ impl<'a> Client<'a> {
         let seed = rand::thread_rng().next_u64();
         session.game = Some(Game::new(&names, seed));
         session.notify();
+        session.persist_game().ok();
 
         Ok(())
     }
@@ -259,6 +306,8 @@ impl<'a> Client<'a> {
             }
             PlayerAction::Discard { index } => game.discard_policy(player, *index),
             PlayerAction::VetoAgenda => game.veto_agenda(player),
+            PlayerAction::AcceptVeto => game.veto_agenda(player),
+            PlayerAction::RejectVeto => game.reject_veto(player),
         })
     }
 
@@ -276,6 +325,7 @@ impl<'a> Client<'a> {
 
         f(game)?;
         session.notify();
+        session.persist_game().ok();
 
         Ok(())
     }

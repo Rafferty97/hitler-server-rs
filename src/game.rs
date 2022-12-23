@@ -162,6 +162,11 @@ impl Game {
         }
     }
 
+    /// Gets the player names.
+    pub fn player_names(&self) -> impl Iterator<Item = &'_ str> {
+        self.players.iter().map(|p| &p.name[..])
+    }
+
     /// Finds a player with the given name.
     pub fn find_player(&self, name: &str) -> Result<usize, GameError> {
         self.players
@@ -403,7 +408,7 @@ impl Game {
     pub fn reject_veto(&mut self, player: usize) -> Result<(), GameError> {
         self.check_player_index(player)?;
 
-        let GameState::LegislativeSession { president, chancellor, turn } = &mut self.state else {
+        let GameState::LegislativeSession { president, turn, .. } = &mut self.state else {
             return Err(GameError::InvalidAction);
         };
 

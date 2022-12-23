@@ -27,7 +27,18 @@ async fn main() {
     };
     log::info!("Listening on: {:?}", addr);
 
-    let manager = Box::<SessionManager>::leak(Default::default());
+    let Ok(Ok(db)) = sled::open("data").map(|db| db.open_tree("games")) else {
+        log::error!("Could not open game database");
+        return;
+    };
+
+    let manager = SessionManager::new(db);
+    let manager = Box::leak(Box::new(manager));
+
+    log::info!(
+        "Loaded {} active games from the database",
+        manager.num_games()
+    );
 
     while let Ok((stream, _)) = listener.accept().await {
         tokio::spawn(accept_connection(stream, manager));

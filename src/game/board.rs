@@ -61,7 +61,7 @@ impl Board {
         if self.fascist_cards == MAX_FASCIST_CARDS {
             return Some(Party::Fascist);
         }
-        return None;
+        None
     }
 
     /// Checks whether veto power is unlocked.

@@ -4,17 +4,11 @@ use crate::{
 };
 use futures_util::{select, FutureExt, SinkExt, StreamExt, TryStreamExt};
 use serde_json::{json, Value};
-use thiserror::Error;
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
 
-#[derive(Error, Debug)]
-enum WsError {
-    #[error("violation of the application-layer protocol")]
-    ProtocolError,
-    #[error("{0:?}")]
-    GameError(GameError),
-}
+/// Indicates a websockets application-level protocol error.
+struct WsError;
 
 pub async fn accept_connection(stream: TcpStream, manager: &SessionManager) {
     log::info!("Accepted new connection");
@@ -95,7 +89,7 @@ enum Response {
 
 /// Parses a websockets message from the client.
 fn parse_request(req: &Value) -> Result<Request, WsError> {
-    use WsError::ProtocolError as PE;
+    use WsError as PE;
 
     match req["type"].as_str().unwrap_or("") {
         "create_game" => Ok(Request::CreateGame),
@@ -138,6 +132,13 @@ fn parse_request(req: &Value) -> Result<Request, WsError> {
                 "nextRound" => PlayerAction::EndCardReveal,
                 "policyPeak" => PlayerAction::EndExecutiveAction,
                 "investigateParty" => PlayerAction::EndExecutiveAction,
+                "vetoConsent" => {
+                    if req["data"].as_bool().ok_or(PE)? {
+                        PlayerAction::AcceptVeto
+                    } else {
+                        PlayerAction::RejectVeto
+                    }
+                }
                 "gameover" => match req["data"].as_str() {
                     Some("restart") => return Ok(Request::StartGame),
                     _ => return Err(PE),
@@ -198,6 +199,5 @@ fn format_reply(res: Response) -> Value {
             "type": "update",
             "state": state
         }),
-        _ => unimplemented!(),
     }
 }
