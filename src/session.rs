@@ -301,6 +301,10 @@ impl<'a> Client<'a> {
         };
         let mut session = session.lock().unwrap();
 
+        if session.game.as_ref().map(|g| !g.is_over()).unwrap_or(false) {
+            return Err(GameError::InvalidAction);
+        }
+
         let names = session
             .players
             .iter()
@@ -345,6 +349,11 @@ impl<'a> Client<'a> {
             PlayerAction::AcceptVeto => game.veto_agenda(player),
             PlayerAction::RejectVeto => game.reject_veto(player),
         })
+    }
+
+    /// Ends the game.
+    pub fn end_game(&self) -> Result<(), GameError> {
+        self.mutate_game(|game| game.end_game())
     }
 
     fn mutate_game(

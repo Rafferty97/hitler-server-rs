@@ -71,6 +71,7 @@ enum Request {
     BoardNext { state: String },
     PlayerAction(PlayerAction),
     GetState,
+    EndGame,
 }
 
 /// A message sent by the server to a game client.
@@ -141,6 +142,7 @@ fn parse_request(req: &Value) -> Result<Request, WsError> {
                 }
                 "gameover" => match req["data"].as_str() {
                     Some("restart") => return Ok(Request::StartGame),
+                    Some("end") => return Ok(Request::EndGame),
                     _ => return Err(PE),
                 },
                 _ => return Err(PE),
@@ -179,7 +181,10 @@ fn process_request(req: Request, client: &mut Client) -> Result<Option<Response>
         }
         Request::StartGame => client.start_game()?,
         Request::PlayerAction(action) => client.player_action(action)?,
-        _ => {}
+        Request::EndGame => client.end_game()?,
+        Request::GetState => {
+            // Ignore these
+        }
     }
     Ok(None)
 }

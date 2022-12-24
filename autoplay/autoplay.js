@@ -3,22 +3,23 @@ const WebSocket = require('websocket').client
 const ACTION_DELAY = 3000 // 3 secs
 
 async function main() {
-  const url = 'ws://localhost:8888/'
-  const players = ['BOB', 'CHARLIE', 'DAVID', 'ED', 'FRED', 'GEORGE']
-  const gameId = process.argv[2]
+  const players = ['ALEX', 'BOB', 'CHARLIE', 'DAVID', 'ED', 'FRED', 'GEORGE', 'HARRY', 'IJ']
+  const url = process.argv[2] == 'prod' ? 'wss://secrethitler.live/ws' : 'ws://localhost:8888/'
+  const gameId = process.argv[3]
   
   if (!/[A-Z]{4}/.test(gameId)) {
     console.error('Not a valid game ID: ' + gameId)
     process.exit(1)
   }
 
+  let i = 0
   for (const name of players) {
-    createPlayer(url, gameId, name)
+    createPlayer(url, gameId, name, i++)
     await wait(200)
   }
 }
 
-async function createPlayer(url, gameId, name) {
+async function createPlayer(url, gameId, name, index) {
   console.log(`Creating player: ${name}`)
 
   const connect = () => {
@@ -35,7 +36,7 @@ async function createPlayer(url, gameId, name) {
         const action = data.state.action?.type
         clearTimeout(timeout)
         timeout = setTimeout(() => {
-          const reply = react(data.state)
+          const reply = react(data.state, index)
           if (reply == null) return
           conn.send(JSON.stringify({ type: 'player_action', action, data: reply }))
         }, ACTION_DELAY)
@@ -55,7 +56,7 @@ async function createPlayer(url, gameId, name) {
   connect()
 }
 
-function react(msg) {
+function react(msg, index) {
   const { action, players, role } = msg
   if (action == null) return
   if (action.type == 'lobby') {
@@ -69,7 +70,7 @@ function react(msg) {
     return players[choice].id
   }
   if (action.type == 'vote') {
-    return Math.random() < 0.5
+    return index % 2 === 0
   }
   if (action.type == 'legislative') {
     if (action.canVeto && Math.random() < 0.5) {

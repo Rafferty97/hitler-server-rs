@@ -61,6 +61,7 @@ enum GameState {
     GameOver {
         winner: Party,
         win_condition: WinCondition,
+        ended: bool,
     },
 }
 
@@ -481,6 +482,20 @@ impl Game {
         Ok(())
     }
 
+    /// Called to end the game.
+    pub fn end_game(&mut self) -> Result<(), GameError> {
+        let GameState::GameOver { ended, .. } = &mut self.state else {
+            return Err(GameError::InvalidAction);
+        };
+        *ended = true;
+        Ok(())
+    }
+
+    /// Returns true if the game is over.
+    pub fn is_over(&self) -> bool {
+        matches!(self.state, GameState::GameOver { .. })
+    }
+
     fn start_election(&mut self, president: Option<usize>) {
         if self.election_tracker == 3 {
             let card = self.deck.pop().unwrap();
@@ -551,6 +566,7 @@ impl Game {
             self.state = GameState::GameOver {
                 winner: party,
                 win_condition: WinCondition::Legislative,
+                ended: false,
             };
             return true;
         }
@@ -563,6 +579,7 @@ impl Game {
                     self.state = GameState::GameOver {
                         winner: Party::Fascist,
                         win_condition: WinCondition::Hitler,
+                        ended: false,
                     };
                     return true;
                 } else {
@@ -576,6 +593,7 @@ impl Game {
             self.state = GameState::GameOver {
                 winner: Party::Liberal,
                 win_condition: WinCondition::Hitler,
+                ended: false,
             };
             return true;
         }

@@ -2,7 +2,7 @@ use super::{
     player::{Player, Role},
     Game,
 };
-use crate::game::{party::Party, VetoStatus};
+use crate::game::{party::Party, GameState, LegislativeSessionTurn, VetoStatus};
 use serde_json::{json, Value};
 
 impl Game {
@@ -16,6 +16,7 @@ impl Game {
             "drawPile": self.deck.len(),
             "lastPresident": self.last_government.map(|g| g.president as i32).unwrap_or(-1),
             "lastChancellor": self.last_government.map(|g| g.chancellor as i32).unwrap_or(-1),
+            "hidden": self.get_hidden_state_json()
         })
     }
 
@@ -155,12 +156,32 @@ impl Game {
             GameOver {
                 winner,
                 win_condition,
+                ended,
             } => json!({
                 "type": "end",
                 "winner": winner.to_string(),
-                "winType": win_condition.to_string()
+                "winType": win_condition.to_string(),
+                "ended": ended
             }),
         }
+    }
+
+    fn get_hidden_state_json(&self) -> Value {
+        json!({
+            "players": serde_json::to_value(&self.players).unwrap(),
+            "deck": serde_json::to_value(&self.deck).unwrap(),
+            "hand": match &self.state {
+                GameState::LegislativeSession { turn, .. } => {
+                    match turn {
+                        LegislativeSessionTurn::President { cards } => serde_json::to_value(cards).unwrap(),
+                        LegislativeSessionTurn::Chancellor { cards, .. } => serde_json::to_value(cards).unwrap(),
+                        LegislativeSessionTurn::VetoRequested { cards, .. } => serde_json::to_value(cards).unwrap(),
+                        _ => Value::Null
+                    }
+                },
+                _ => Value::Null
+            }
+        })
     }
 
     fn get_player_action_json(&self, idx: usize, player: &Player) -> Value {
@@ -273,11 +294,13 @@ impl Game {
             GameOver {
                 winner,
                 win_condition,
+                ended,
             } => {
                 json!({
                     "type": "gameover",
                     "winner": winner.to_string(),
-                    "winType": win_condition.to_string()
+                    "winType": win_condition.to_string(),
+                    "ended": ended
                 })
             }
             _ => Value::Null,
