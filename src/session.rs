@@ -29,7 +29,7 @@ impl SessionManager {
             game: db.open_tree("games")?,
             archive: db.open_tree("archive")?,
         };
-        for entry in db.iter() {
+        for entry in dbs.game.iter() {
             let (id, game) = entry?;
             let id = String::from_utf8(id.to_vec())?;
             let game = serde_json::from_slice(&game)?;
@@ -209,18 +209,16 @@ impl Session {
             self.id.as_bytes(),
             serde_json::to_string(&self.game)?.as_bytes(),
         )?;
-        self.archive();
+        self.archive()?;
         Ok(())
     }
 
-    fn archive(&mut self) {
+    fn archive(&mut self) -> Result<(), Box<dyn Error>> {
         let Some(game) = &self.game else {
-            return;
+            return Ok(());
         };
         if game.is_over() && !self.archived {
-            let Ok(key) = self.dbs.db.generate_id() else {
-                return;
-            };
+            let key = self.dbs.db.generate_id()?.to_be_bytes();
             let data = json!({
                 "game_id": self.id(),
                 "players": self.players.iter().map(|p| &p.name[..]).collect::<Value>(),
@@ -228,9 +226,10 @@ impl Session {
                 "outcome": self.game.as_ref().map(Game::get_outcome_json).unwrap_or(Value::Null)
             })
             .to_string();
-            let db = &self.dbs.archive;
-            self.archived = db.insert(key.to_be_bytes(), data.as_bytes()).is_ok();
+            self.dbs.archive.insert(key, data.as_bytes())?;
+            self.archived = true;
         }
+        Ok(())
     }
 }
 
