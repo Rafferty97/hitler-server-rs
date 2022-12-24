@@ -2,7 +2,6 @@ use crate::{error::GameError, game::Game};
 use dashmap::{mapref::entry::Entry, DashMap};
 use rand::{Rng, RngCore};
 use serde_json::{json, Value};
-use sled::Transactional;
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -10,32 +9,35 @@ use tokio::sync::watch;
 
 pub struct SessionManager {
     sessions: DashMap<String, SessionHandle>,
+    dbs: Dbs,
+}
+
+#[derive(Clone)]
+struct Dbs {
     db: sled::Db,
-    game_db: sled::Tree,
-    archive_db: sled::Tree,
+    game: sled::Tree,
+    archive: sled::Tree,
 }
 
 pub type SessionHandle = Arc<Mutex<Session>>;
 
 impl SessionManager {
     pub fn new(db: sled::Db) -> Result<Self, Box<dyn Error>> {
-        let game_db = db.open_tree("games")?;
-        let archive_db = db.open_tree("archive")?;
         let sessions = DashMap::new();
+        let dbs = Dbs {
+            db: db.clone(),
+            game: db.open_tree("games")?,
+            archive: db.open_tree("archive")?,
+        };
         for entry in db.iter() {
             let (id, game) = entry?;
             let id = String::from_utf8(id.to_vec())?;
             let game = serde_json::from_slice(&game)?;
-            let session = Session::new(id.clone(), game_db.clone(), game);
+            let session = Session::new(id.clone(), game, dbs.clone());
             let session = Arc::new(Mutex::new(session));
             sessions.insert(id, session);
         }
-        Ok(Self {
-            sessions,
-            db,
-            game_db,
-            archive_db,
-        })
+        Ok(Self { sessions, dbs })
     }
 
     pub fn create_game(&self) -> SessionHandle {
@@ -45,7 +47,7 @@ impl SessionManager {
             if let Entry::Occupied(_) = entry {
                 continue;
             }
-            let session = Session::new(entry.key().clone(), self.game_db.clone(), None);
+            let session = Session::new(entry.key().clone(), None, self.dbs.clone());
             let session = Arc::new(Mutex::new(session));
             entry.or_insert(session.clone());
             break session;
@@ -67,7 +69,7 @@ impl SessionManager {
         let mut ids_to_delete = vec![];
 
         // Find expired sessions
-        for session in self.sessions.iter_mut() {
+        for session in self.sessions.iter() {
             let game_id = session.key();
             let Ok(session) = session.lock() else {
                 log::error!("Found poisoned session: {}", game_id);
@@ -76,10 +78,10 @@ impl SessionManager {
             };
             let elapsed = Instant::now().duration_since(session.last_ts);
             if elapsed > Duration::from_secs(3600) {
-                if self.archive_game(&session).is_ok() {
+                if self.dbs.game.remove(session.id().as_bytes()).is_ok() {
                     ids_to_delete.push(game_id.clone());
                 } else {
-                    log::error!("Could not archive game: {}", game_id);
+                    log::error!("Could not remove game: {}", game_id);
                 }
             }
         }
@@ -88,21 +90,6 @@ impl SessionManager {
         for game_id in ids_to_delete.into_iter() {
             self.sessions.remove(&game_id);
         }
-    }
-
-    fn archive_game(&self, session: &Session) -> Result<(), Box<dyn Error>> {
-        (&self.game_db, &self.archive_db).transaction(|(game, archive)| {
-            // Remove the game from the active games database
-            game.remove(session.id().as_bytes())?;
-            // Insert the game into the archive database
-            archive.insert(
-                &self.db.generate_id()?.to_be_bytes(),
-                session.archive().to_string().as_bytes(),
-            )?;
-            // This is needed for type inference...
-            Ok::<(), sled::transaction::ConflictableTransactionError<sled::Error>>(())
-        })?;
-        Ok(())
     }
 
     fn random_id() -> String {
@@ -127,17 +114,19 @@ pub struct Session {
     game: Option<Game>,
     /// Channel for sending board state updates.
     board_state: watch::Sender<Value>,
-    /// The database the game should be persisted to.
-    db: sled::Tree,
+    /// The databases.
+    dbs: Dbs,
     /// Timestamp that the game was created.
     created_ts: std::time::SystemTime,
     /// Timestamp of the last time the game was interacted with.
     last_ts: Instant,
+    /// Whether the current game has been archived.
+    archived: bool,
 }
 
 /// Represents an active Secret Hitler game.
 impl Session {
-    pub fn new(id: String, db: sled::Tree, game: Option<Game>) -> Self {
+    fn new(id: String, game: Option<Game>, dbs: Dbs) -> Self {
         let players = game
             .as_ref()
             .map(|g| {
@@ -151,9 +140,10 @@ impl Session {
             players,
             game,
             board_state: watch::channel(Value::Null).0,
-            db,
+            dbs,
             created_ts: std::time::SystemTime::now(),
             last_ts: Instant::now(),
+            archived: false,
         }
     }
 
@@ -214,21 +204,33 @@ impl Session {
         self.last_ts = Instant::now();
     }
 
-    pub fn archive(&self) -> Value {
-        json!({
-            "game_id": self.id(),
-            "players": self.players.iter().map(|p| &p.name[..]).collect::<Value>(),
-            "created_ts": self.created_ts,
-            "outcome": self.game.as_ref().map(Game::get_outcome_json).unwrap_or(Value::Null)
-        })
-    }
-
-    fn persist_game(&self) -> Result<(), Box<dyn Error>> {
-        self.db.insert(
+    fn persist_game(&mut self) -> Result<(), Box<dyn Error>> {
+        self.dbs.game.insert(
             self.id.as_bytes(),
             serde_json::to_string(&self.game)?.as_bytes(),
         )?;
+        self.archive();
         Ok(())
+    }
+
+    fn archive(&mut self) {
+        let Some(game) = &self.game else {
+            return;
+        };
+        if game.is_over() && !self.archived {
+            let Ok(key) = self.dbs.db.generate_id() else {
+                return;
+            };
+            let data = json!({
+                "game_id": self.id(),
+                "players": self.players.iter().map(|p| &p.name[..]).collect::<Value>(),
+                "created_ts": self.created_ts,
+                "outcome": self.game.as_ref().map(Game::get_outcome_json).unwrap_or(Value::Null)
+            })
+            .to_string();
+            let db = &self.dbs.archive;
+            self.archived = db.insert(key.to_be_bytes(), data.as_bytes()).is_ok();
+        }
     }
 }
 
