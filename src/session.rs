@@ -32,8 +32,10 @@ impl SessionManager {
         for entry in dbs.game.iter() {
             let (id, game) = entry?;
             let id = String::from_utf8(id.to_vec())?;
-            let game = serde_json::from_slice(&game)?;
-            let session = Session::new(id.clone(), game, dbs.clone());
+            let Ok(Some(game)) = serde_json::from_slice(&game) else {
+                continue;
+            };
+            let session = Session::new(id.clone(), Some(game), dbs.clone());
             let session = Arc::new(Mutex::new(session));
             sessions.insert(id, session);
         }
