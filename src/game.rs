@@ -503,16 +503,16 @@ impl Game {
     }
 
     fn start_legislative_session(&mut self, government: Government) {
+        let mut cards = [
+            self.deck.pop().unwrap(),
+            self.deck.pop().unwrap(),
+            self.deck.pop().unwrap(),
+        ];
+        cards.reverse();
         self.state = GameState::LegislativeSession {
             president: government.president,
             chancellor: government.chancellor,
-            turn: LegislativeSessionTurn::President {
-                cards: [
-                    self.deck.pop().unwrap(),
-                    self.deck.pop().unwrap(),
-                    self.deck.pop().unwrap(),
-                ],
-            },
+            turn: LegislativeSessionTurn::President { cards },
         };
         self.last_government = Some(government);
     }

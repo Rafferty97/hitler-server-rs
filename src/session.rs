@@ -5,6 +5,7 @@ use serde_json::Value;
 use sled::IVec;
 use std::error::Error;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tokio::sync::watch;
 
 pub struct SessionManager {
@@ -59,6 +60,30 @@ impl SessionManager {
         self.sessions.len()
     }
 
+    pub fn purge_games(&self) {
+        // Find expired sessions
+        let mut expired = vec![];
+        for session in self.sessions.iter_mut() {
+            if session
+                .lock()
+                .map(|session| {
+                    Instant::now().duration_since(session.last_ts) > Duration::from_secs(7200)
+                })
+                .unwrap_or(true)
+            {
+                log::info!("Found expired game: {}", session.key());
+                expired.push(session.key().clone());
+            }
+        }
+
+        // Delete them
+        for game_id in expired.into_iter() {
+            if self.db.remove(&game_id).is_ok() {
+                self.sessions.remove(&game_id);
+            }
+        }
+    }
+
     fn random_id() -> String {
         let mut rng = rand::thread_rng();
         (0..4).map(|_| rng.gen_range('A'..='Z')).collect()
@@ -76,6 +101,8 @@ pub struct Session {
     board_state: watch::Sender<Value>,
     /// The database the game should be persisted to.
     db: sled::Tree,
+    /// Timestamp of the last time the game was interacted with.
+    last_ts: Instant,
 }
 
 /// Represents an active Secret Hitler game.
@@ -96,6 +123,7 @@ impl Session {
             game,
             board_state,
             db,
+            last_ts: Instant::now(),
         }
     }
 
@@ -123,7 +151,7 @@ impl Session {
         Ok(self.players.len() - 1)
     }
 
-    pub fn join_board(&self) -> watch::Receiver<Value> {
+    pub fn join_board(&mut self) -> watch::Receiver<Value> {
         let rx = self.board_state.subscribe();
         self.notify();
         rx
@@ -135,7 +163,7 @@ impl Session {
         rx
     }
 
-    fn notify(&self) {
+    fn notify(&mut self) {
         if let Some(game) = self.game.as_ref() {
             // A game is in session
             self.board_state.send_replace(game.get_board_json());
@@ -153,6 +181,7 @@ impl Session {
                 player.player_state.send_replace(state);
             }
         }
+        self.last_ts = Instant::now();
     }
 
     fn persist_game(&self) -> Result<(), Box<dyn Error>> {

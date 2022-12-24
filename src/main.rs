@@ -1,6 +1,9 @@
 use crate::session::SessionManager;
 use crate::ws::accept_connection;
-use std::net::{Ipv4Addr, SocketAddrV4};
+use std::{
+    net::{Ipv4Addr, SocketAddrV4},
+    time::Duration,
+};
 use tokio::net::TcpListener;
 
 mod error;
@@ -40,6 +43,15 @@ async fn main() {
         manager.num_games()
     );
 
+    // Spin up background task to clean up old games
+    tokio::spawn(async {
+        loop {
+            tokio::task::spawn_blocking(|| manager.purge_games());
+            tokio::time::sleep(Duration::from_secs(10)).await;
+        }
+    });
+
+    // Accept connections
     while let Ok((stream, _)) = listener.accept().await {
         tokio::spawn(accept_connection(stream, manager));
     }
