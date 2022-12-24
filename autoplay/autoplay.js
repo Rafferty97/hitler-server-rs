@@ -5,7 +5,7 @@ const ACTION_DELAY = 3000 // 3 secs
 async function main() {
   const players = ['ALEX', 'BOB', 'CHARLIE', 'DAVID', 'ED', 'FRED', 'GEORGE', 'HARRY', 'IJ']
   const url = process.argv[2] == 'prod' ? 'wss://secrethitler.live/ws' : 'ws://localhost:8888/'
-  const gameId = process.argv[3]
+  const gameId = process.argv[3].toUpperCase()
   
   if (!/[A-Z]{4}/.test(gameId)) {
     console.error('Not a valid game ID: ' + gameId)

@@ -97,6 +97,17 @@ impl Game {
             .collect()
     }
 
+    pub fn get_outcome_json(&self) -> Value {
+        let GameState::GameOver { winner, win_condition, .. } = &self.state else {
+            return json!({ "finished": false });
+        };
+        json!({
+            "finished": true,
+            "winner": winner.to_string(),
+            "condition": win_condition.to_string()
+        })
+    }
+
     fn get_board_state_json(&self) -> Value {
         use super::ExecutiveAction::*;
         use super::GameState::*;

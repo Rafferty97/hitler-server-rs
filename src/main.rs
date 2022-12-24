@@ -1,6 +1,7 @@
 use crate::session::SessionManager;
 use crate::ws::accept_connection;
 use std::{
+    error::Error,
     net::{Ipv4Addr, SocketAddrV4},
     time::Duration,
 };
@@ -23,23 +24,21 @@ async fn main() {
         return;
     };
 
+    // Bind to the socket
     let addr = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port);
-    let Ok(listener) = TcpListener::bind(addr).await else {
-        log::error!("Could not bind to address: {:?}", addr);
-        return;
-    };
+    let listener = TcpListener::bind(addr).await.unwrap_or_else(|err| {
+        log::error!("Could not bind to address {:?}: {:?}", addr, err);
+        std::process::exit(1)
+    });
     log::info!("Listening on: {:?}", addr);
 
-    let Ok(Ok(db)) = sled::open("data").map(|db| db.open_tree("games")) else {
-        log::error!("Could not open game database");
-        return;
-    };
-
-    let manager = SessionManager::new(db);
-    let manager = Box::leak(Box::new(manager));
-
+    // Create the session manager
+    let manager = create_session_manager().unwrap_or_else(|err| {
+        log::error!("Could not create session manager: {:?}", err);
+        std::process::exit(1)
+    });
     log::info!(
-        "Loaded {} active games from the database",
+        "Created session manager. Loaded {} games",
         manager.num_games()
     );
 
@@ -47,7 +46,7 @@ async fn main() {
     tokio::spawn(async {
         loop {
             tokio::task::spawn_blocking(|| manager.purge_games());
-            tokio::time::sleep(Duration::from_secs(10)).await;
+            tokio::time::sleep(Duration::from_secs(15)).await;
         }
     });
 
@@ -55,4 +54,10 @@ async fn main() {
     while let Ok((stream, _)) = listener.accept().await {
         tokio::spawn(accept_connection(stream, manager));
     }
+}
+
+fn create_session_manager() -> Result<&'static mut SessionManager, Box<dyn Error>> {
+    let db = sled::open("data")?;
+    let manager = SessionManager::new(db)?;
+    Ok(Box::leak(Box::new(manager)))
 }
