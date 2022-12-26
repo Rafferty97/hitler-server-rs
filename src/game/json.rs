@@ -167,12 +167,10 @@ impl Game {
             GameOver {
                 winner,
                 win_condition,
-                ended,
             } => json!({
                 "type": "end",
                 "winner": winner.to_string(),
-                "winType": win_condition.to_string(),
-                "ended": ended
+                "winType": win_condition.to_string()
             }),
         }
     }
@@ -305,13 +303,11 @@ impl Game {
             GameOver {
                 winner,
                 win_condition,
-                ended,
             } => {
                 json!({
                     "type": "gameover",
                     "winner": winner.to_string(),
-                    "winType": win_condition.to_string(),
-                    "ended": ended
+                    "winType": win_condition.to_string()
                 })
             }
             _ => Value::Null,

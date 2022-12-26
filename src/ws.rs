@@ -1,6 +1,7 @@
 use crate::{
+    client::{Client, PlayerAction},
     error::GameError,
-    session::{Client, PlayerAction, SessionManager},
+    session::SessionManager,
 };
 use futures_util::{select, FutureExt, SinkExt, StreamExt, TryStreamExt};
 use serde_json::{json, Value};
@@ -70,7 +71,7 @@ enum Request {
     StartGame,
     BoardNext { state: String },
     PlayerAction(PlayerAction),
-    GetState,
+    Heartbeat,
     EndGame,
 }
 
@@ -149,7 +150,7 @@ fn parse_request(req: &Value) -> Result<Request, WsError> {
             };
             Ok(Request::PlayerAction(action))
         }
-        "get_state" => Ok(Request::GetState),
+        "heartbeat" => Ok(Request::Heartbeat),
         _ => Err(PE),
     }
 }
@@ -182,9 +183,7 @@ fn process_request(req: Request, client: &mut Client) -> Result<Option<Response>
         Request::StartGame => client.start_game()?,
         Request::PlayerAction(action) => client.player_action(action)?,
         Request::EndGame => client.end_game()?,
-        Request::GetState => {
-            // Ignore these
-        }
+        Request::Heartbeat => client.heartbeat(),
     }
     Ok(None)
 }

@@ -1,18 +1,21 @@
 use crate::time::iso8601;
-use crate::{error::GameError, game::Game};
+use crate::{error::GameError, game::Game as GameInner};
 use dashmap::{mapref::entry::Entry, DashMap};
 use rand::{Rng, RngCore};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::error::Error;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::watch;
 
+/// Manages all the game sessions running on the server.
 pub struct SessionManager {
     sessions: DashMap<String, SessionHandle>,
     dbs: Dbs,
 }
 
+/// The databases that games are persisted to.
 #[derive(Clone)]
 struct Dbs {
     db: sled::Db,
@@ -20,7 +23,40 @@ struct Dbs {
     archive: sled::Tree,
 }
 
+/// A single game session.
+pub struct Session {
+    /// The game ID.
+    id: String,
+    /// The game itself.
+    game: Game,
+    /// Channel for sending game state updates to boards.
+    board_state: watch::Sender<Value>,
+    /// Channels for sending game state updates to players.
+    player_states: Vec<watch::Sender<Value>>,
+    /// The databases.
+    dbs: Dbs,
+    /// Timestamp of the last time this session was interacted with.
+    last_ts: Instant,
+}
+
 pub type SessionHandle = Arc<Mutex<Session>>;
+
+#[allow(clippy::large_enum_variant)]
+#[derive(Serialize, Deserialize)]
+enum Game {
+    Lobby {
+        players: Vec<String>,
+    },
+    Playing {
+        /// The game itself.
+        game: GameInner,
+        /// Timestamp that the game was created.
+        started_ts: std::time::SystemTime,
+        /// Whether this game has been archived.
+        archived: bool,
+    },
+    Over,
+}
 
 impl SessionManager {
     pub fn new(db: sled::Db) -> Result<Self, Box<dyn Error>> {
@@ -33,10 +69,10 @@ impl SessionManager {
         for entry in dbs.game.iter() {
             let (id, game) = entry?;
             let id = String::from_utf8(id.to_vec())?;
-            let Ok(Some(game)) = serde_json::from_slice(&game) else {
+            let Ok(game) = serde_json::from_slice(&game) else {
                 continue;
             };
-            let session = Session::new(id.clone(), Some(game), dbs.clone());
+            let session = Session::hydrate(id.clone(), dbs.clone(), game);
             let session = Arc::new(Mutex::new(session));
             sessions.insert(id, session);
         }
@@ -50,7 +86,7 @@ impl SessionManager {
             if let Entry::Occupied(_) = entry {
                 continue;
             }
-            let session = Session::new(entry.key().clone(), None, self.dbs.clone());
+            let session = Session::new(entry.key().clone(), self.dbs.clone());
             let session = Arc::new(Mutex::new(session));
             entry.or_insert(session.clone());
             break session;
@@ -108,299 +144,220 @@ impl SessionManager {
     }
 }
 
-pub struct Session {
-    /// The game ID.
-    id: String,
-    /// The players in the game.
-    players: Vec<Player>,
-    /// The game itself once it has started.
-    game: Option<Game>,
-    /// Channel for sending board state updates.
-    board_state: watch::Sender<Value>,
-    /// The databases.
-    dbs: Dbs,
-    /// Timestamp that the game was created.
-    created_ts: std::time::SystemTime,
-    /// Timestamp of the last time the game was interacted with.
-    last_ts: Instant,
-    /// Whether the current game has been archived.
-    archived: bool,
-}
-
-/// Represents an active Secret Hitler game.
 impl Session {
-    fn new(id: String, game: Option<Game>, dbs: Dbs) -> Self {
-        let players = game
-            .as_ref()
-            .map(|g| {
-                g.player_names()
-                    .map(|name| Player::new(name.to_string()))
-                    .collect()
-            })
-            .unwrap_or_default();
+    fn new(id: String, dbs: Dbs) -> Self {
+        Self::hydrate(id, dbs, Game::Lobby { players: vec![] })
+    }
+
+    fn hydrate(id: String, dbs: Dbs, game: Game) -> Self {
+        let mut player_states = vec![];
+        for _ in 0..game.num_players() {
+            player_states.push(watch::channel(Value::Null).0);
+        }
         Self {
             id,
-            players,
             game,
             board_state: watch::channel(Value::Null).0,
+            player_states,
             dbs,
-            created_ts: std::time::SystemTime::now(),
             last_ts: Instant::now(),
-            archived: false,
         }
     }
 
+    /// Gets the unique game ID.
     pub fn id(&self) -> &str {
         &self.id
     }
 
+    /// Gets the index of the player with the given name,
+    /// adding the player to the game if no player with that name has joined yet.
     pub fn get_or_insert_player(&mut self, name: &str) -> Result<usize, GameError> {
-        if let Some(idx) = self.players.iter().position(|player| player.name == name) {
-            return Ok(idx);
+        match &mut self.game {
+            Game::Lobby { players } => {
+                if let Some(idx) = players.iter().position(|n| n == name) {
+                    return Ok(idx);
+                }
+                if players.len() == 10 {
+                    return Err(GameError::TooManyPlayers);
+                }
+                self.player_states.push(watch::channel(Value::Null).0);
+                players.push(name.to_string());
+                Ok(players.len() - 1)
+            }
+            Game::Playing { game, .. } => game.find_player(name),
+            Game::Over => Err(GameError::GameNotFound),
         }
-
-        if self.game.is_some() {
-            return Err(GameError::CannotJoinStartedGame);
-        }
-
-        if self.players.len() == 10 {
-            return Err(GameError::TooManyPlayers);
-        }
-
-        self.players.push(Player {
-            name: name.to_string(),
-            player_state: watch::channel(Value::Null).0,
-        });
-        Ok(self.players.len() - 1)
     }
 
+    /// Called by a new game board client, and returns a stream of updates for the game board.
     pub fn join_board(&mut self) -> watch::Receiver<Value> {
         let rx = self.board_state.subscribe();
         self.notify();
         rx
     }
 
+    /// Called by a new player client, and returns a stream of updates for that player.
     pub fn join_player(&mut self, player: usize) -> watch::Receiver<Value> {
-        let rx = self.players[player].player_state.subscribe();
+        let rx = self.player_states[player].subscribe();
         self.notify();
         rx
     }
 
+    /// Starts the game.
+    pub fn start_game(&mut self) -> Result<(), GameError> {
+        // Check there isn't already a game in progress
+        if !self.game.can_start() {
+            return Err(GameError::InvalidAction);
+        }
+
+        self.archive().ok();
+        let names = self.game.player_names();
+        let seed = rand::thread_rng().next_u64();
+        self.game = Game::Playing {
+            game: GameInner::new(&names, seed),
+            started_ts: SystemTime::now(),
+            archived: false,
+        };
+        self.notify();
+        self.persist_game().ok();
+
+        Ok(())
+    }
+
+    /// Performs an action on the game.
+    pub fn mutate_game<F>(&mut self, mutation: F) -> Result<(), GameError>
+    where
+        F: FnOnce(&mut GameInner) -> Result<(), GameError>,
+    {
+        let Some(game) = self.game.game_mut() else {
+            return Err(GameError::InvalidAction);
+        };
+
+        mutation(game)?;
+        self.notify();
+        self.persist_game().ok();
+        self.archive().ok();
+
+        Ok(())
+    }
+
+    /// Keeps the game session alive.
+    pub fn heartbeat(&mut self) {
+        self.last_ts = Instant::now();
+    }
+
+    /// Ends the game.
+    pub fn end_game(&mut self) -> Result<(), GameError> {
+        // Check the game is over.
+        if !self.game.can_end() {
+            return Err(GameError::InvalidAction);
+        }
+
+        self.archive().ok();
+        self.game = Game::Over;
+        self.notify();
+        self.persist_game().ok();
+
+        Ok(())
+    }
+
+    /// Notifies all connected clients of the new game state.
     fn notify(&mut self) {
-        if let Some(game) = self.game.as_ref() {
-            // A game is in session
-            self.board_state.send_replace(game.get_board_json());
-            for (idx, player) in self.players.iter().enumerate() {
-                let state = game.get_player_json(idx);
-                player.player_state.send_replace(state);
+        match &self.game {
+            Game::Lobby { players } => {
+                let state = GameInner::get_lobby_board_json(players);
+                self.board_state.send_replace(state);
+                for (idx, player_state) in self.player_states.iter().enumerate() {
+                    let state = GameInner::get_lobby_player_json(players, idx);
+                    player_state.send_replace(state);
+                }
             }
-        } else {
-            // The game is still in "lobby mode"
-            let names: Vec<_> = self.players.iter().map(|p| p.name.clone()).collect();
-            self.board_state
-                .send_replace(Game::get_lobby_board_json(&names));
-            for (idx, player) in self.players.iter().enumerate() {
-                let state = Game::get_lobby_player_json(&names, idx);
-                player.player_state.send_replace(state);
+            Game::Playing { game, .. } => {
+                self.board_state.send_replace(game.get_board_json());
+                for (idx, player_state) in self.player_states.iter().enumerate() {
+                    let state = game.get_player_json(idx);
+                    player_state.send_replace(state);
+                }
+            }
+            Game::Over => {
+                self.board_state.send_replace(json!({ "type": "gameover" }));
+                for player_state in self.player_states.iter() {
+                    player_state.send_replace(json!({ "type": "gameover" }));
+                }
             }
         }
         self.last_ts = Instant::now();
     }
 
+    /// Persists the game state to disk, so it can be recovered upon server restart.
     fn persist_game(&mut self) -> Result<(), Box<dyn Error>> {
         self.dbs.game.insert(
             self.id.as_bytes(),
             serde_json::to_string(&self.game)?.as_bytes(),
         )?;
-        self.archive()?;
         Ok(())
     }
 
+    /// Archives the game if it is over and hasn't been archived yet.
     fn archive(&mut self) -> Result<(), Box<dyn Error>> {
-        let Some(game) = &self.game else {
+        let Game::Playing { game, started_ts, archived } = &mut self.game else {
             return Ok(());
         };
-        if game.is_over() && !self.archived {
+        if game.game_over() && !*archived {
             let key = self.dbs.db.generate_id()?.to_be_bytes();
             let data = json!({
-                "game_id": self.id(),
-                "players": self.players.iter().map(|p| &p.name[..]).collect::<Value>(),
-                "created_ts": iso8601(self.created_ts),
-                "outcome": self.game.as_ref().map(Game::get_outcome_json).unwrap_or(Value::Null)
+                "game_id": self.id,
+                "players": game.player_names().collect::<Value>(),
+                "started": iso8601(*started_ts),
+                "finished": iso8601(SystemTime::now()),
+                "outcome": game.get_outcome_json()
             })
             .to_string();
             self.dbs.archive.insert(key, data.as_bytes())?;
-            self.archived = true;
+            *archived = true;
         }
         Ok(())
     }
 }
 
-struct Player {
-    /// The player name.
-    name: String,
-    /// Channel for sending player state updates.
-    player_state: watch::Sender<Value>,
-}
-
-impl Player {
-    fn new(name: String) -> Self {
-        Self {
-            name,
-            player_state: watch::channel(Value::Null).0,
-        }
-    }
-}
-
-/// A single game client, which could be a board or a player.
-pub struct Client<'a> {
-    manager: &'a SessionManager,
-    session: Option<Arc<Mutex<Session>>>,
-    player: Option<usize>,
-    state: Option<watch::Receiver<Value>>,
-}
-
-/// An action performed by the player.
-pub enum PlayerAction {
-    EndNightRound,
-    EndCardReveal,
-    EndExecutiveAction,
-    ChoosePlayer { name: String },
-    CastVote { vote: bool },
-    Discard { index: usize },
-    VetoAgenda,
-    AcceptVeto,
-    RejectVeto,
-}
-
-impl<'a> Client<'a> {
-    /// Creates a new game client.
-    pub fn new(manager: &'a SessionManager) -> Self {
-        Self {
-            manager,
-            session: None,
-            player: None,
-            state: None,
+impl Game {
+    fn num_players(&self) -> usize {
+        match self {
+            Game::Lobby { players } => players.len(),
+            Game::Playing { game, .. } => game.num_players(),
+            Game::Over => 0,
         }
     }
 
-    /// Creates a new game session, returning its ID.
-    pub fn create_game(&mut self) -> Result<String, GameError> {
-        let session = self.manager.create_game();
-        let id = session.lock().unwrap().id().to_owned();
-        Ok(id)
-    }
-
-    /// Joins a game as a board.
-    pub fn join_as_board(&mut self, game_id: &str) -> Result<(), GameError> {
-        let session = self.manager.find_game(game_id)?;
-        self.state = Some(session.lock().unwrap().join_board());
-        self.session = Some(session);
-        self.player = None;
-        Ok(())
-    }
-
-    /// Joins a game as a player.
-    pub fn join_as_player(&mut self, game_id: &str, name: &str) -> Result<(), GameError> {
-        let session = self.manager.find_game(game_id)?;
-        {
-            let mut session = session.lock().unwrap();
-            let player = session.get_or_insert_player(name)?;
-            self.state = Some(session.join_player(player));
-            self.player = Some(player);
-        }
-        self.session = Some(session);
-        Ok(())
-    }
-
-    /// Waits until there is an update to the game state, then returns the latest state.
-    pub async fn next_state(&mut self) -> Value {
-        if let Some(state) = &mut self.state {
-            state.changed().await.ok();
-            state.borrow().clone()
-        } else {
-            std::future::pending().await
+    fn player_names(&self) -> Vec<String> {
+        match self {
+            Game::Lobby { players } => players.clone(),
+            Game::Playing { game, .. } => game.player_names().map(|s| s.to_string()).collect(),
+            Game::Over => vec![],
         }
     }
 
-    /// Starts a new game of Secret Hitler.
-    pub fn start_game(&self) -> Result<(), GameError> {
-        let Some(session) = &self.session else {
-            return Err(GameError::InvalidAction);
-        };
-        let mut session = session.lock().unwrap();
-
-        if session.game.as_ref().map(|g| !g.is_over()).unwrap_or(false) {
-            return Err(GameError::InvalidAction);
+    fn game_mut(&mut self) -> Option<&mut GameInner> {
+        match self {
+            Game::Lobby { .. } => None,
+            Game::Playing { game, .. } => Some(game),
+            Game::Over => None,
         }
-
-        let names = session
-            .players
-            .iter()
-            .map(|p| p.name.clone())
-            .collect::<Vec<_>>();
-        let seed = rand::thread_rng().next_u64();
-        session.game = Some(Game::new(&names, seed));
-        session.notify();
-        session.persist_game().ok();
-
-        Ok(())
     }
 
-    /// Called when the board is ready to move on.
-    pub fn board_next(&self, state: &str) -> Result<(), GameError> {
-        if self.player.is_some() {
-            return Err(GameError::InvalidAction);
+    fn can_start(&self) -> bool {
+        match self {
+            Game::Lobby { .. } => true,
+            Game::Playing { game, .. } => game.game_over(),
+            Game::Over => false,
         }
-        self.mutate_game(|game| match state {
-            "election" => game.end_voting(),
-            "cardReveal" => game.end_card_reveal(None),
-            "executiveAction" => game.end_executive_action(None),
-            "legislativeSession" => game.end_legislative_session(),
-            _ => Err(GameError::InvalidAction),
-        })
     }
 
-    /// Called when a player performs an action.
-    pub fn player_action(&self, action: PlayerAction) -> Result<(), GameError> {
-        let player = self.player.ok_or(GameError::InvalidAction)?;
-        self.mutate_game(|game| match &action {
-            PlayerAction::EndNightRound => game.end_night_round(player),
-            PlayerAction::EndCardReveal => game.end_card_reveal(Some(player)),
-            PlayerAction::EndExecutiveAction => game.end_executive_action(Some(player)),
-            PlayerAction::CastVote { vote } => game.cast_vote(player, *vote),
-            PlayerAction::ChoosePlayer { name } => {
-                let other = game.find_player(name)?;
-                game.choose_player(player, other)
-            }
-            PlayerAction::Discard { index } => game.discard_policy(player, *index),
-            PlayerAction::VetoAgenda => game.veto_agenda(player),
-            PlayerAction::AcceptVeto => game.veto_agenda(player),
-            PlayerAction::RejectVeto => game.reject_veto(player),
-        })
-    }
-
-    /// Ends the game.
-    pub fn end_game(&self) -> Result<(), GameError> {
-        self.mutate_game(|game| game.end_game())
-    }
-
-    fn mutate_game(
-        &self,
-        mut f: impl FnMut(&mut Game) -> Result<(), GameError>,
-    ) -> Result<(), GameError> {
-        let Some(session) = &self.session else {
-            return Err(GameError::InvalidAction);
-        };
-        let mut session = session.lock().unwrap();
-        let Some(game) = &mut session.game else {
-            return Err(GameError::InvalidAction);
-        };
-
-        f(game)?;
-        session.notify();
-        session.persist_game().ok();
-
-        Ok(())
+    fn can_end(&self) -> bool {
+        match self {
+            Game::Lobby { .. } => false,
+            Game::Playing { game, .. } => game.game_over(),
+            Game::Over => false,
+        }
     }
 }

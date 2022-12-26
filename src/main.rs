@@ -7,6 +7,7 @@ use std::{
 };
 use tokio::{io::AsyncWriteExt, net::TcpListener};
 
+mod client;
 mod error;
 mod game;
 mod session;
