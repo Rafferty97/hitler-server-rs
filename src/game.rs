@@ -210,16 +210,18 @@ impl Game {
         match result {
             Party::Liberal => {
                 self.board.play_liberal();
+                if self.check_game_over() {
+                    return Ok(());
+                }
                 self.check_deck();
-                self.check_game_over();
                 self.start_election(None);
             }
             Party::Fascist => {
                 self.board.play_fascist();
-                self.check_deck();
                 if self.check_game_over() {
                     return Ok(());
                 }
+                self.check_deck();
                 if let (false, Some(action)) = (chaos, self.board.get_executive_power()) {
                     self.play_executive_power(action);
                 } else {
