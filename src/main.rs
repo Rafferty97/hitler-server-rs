@@ -5,14 +5,13 @@ use std::{
     net::{Ipv4Addr, SocketAddrV4},
     time::Duration,
 };
-use tokio::net::TcpListener;
+use tokio::{io::AsyncWriteExt, net::TcpListener};
 
 mod error;
 mod game;
 mod session;
+mod time;
 mod ws;
-
-// FIXME: Implement TLS support
 
 #[tokio::main]
 async fn main() {
@@ -32,8 +31,13 @@ async fn main() {
     });
     log::info!("Listening on: {:?}", addr);
 
+    let db = sled::open("data").unwrap_or_else(|err| {
+        log::error!("Could not open database: {:?}", err);
+        std::process::exit(1)
+    });
+
     // Create the session manager
-    let manager = create_session_manager().unwrap_or_else(|err| {
+    let manager = create_session_manager(db.clone()).unwrap_or_else(|err| {
         log::error!("Could not create session manager: {:?}", err);
         std::process::exit(1)
     });
@@ -50,14 +54,37 @@ async fn main() {
         }
     });
 
+    // Background task to emit game statistics
+    tokio::spawn(print_game_stats(db.clone()));
+
     // Accept connections
     while let Ok((stream, _)) = listener.accept().await {
         tokio::spawn(accept_connection(stream, manager));
     }
 }
 
-fn create_session_manager() -> Result<&'static mut SessionManager, Box<dyn Error>> {
-    let db = sled::open("data")?;
+fn create_session_manager(db: sled::Db) -> Result<&'static mut SessionManager, Box<dyn Error>> {
     let manager = SessionManager::new(db)?;
     Ok(Box::leak(Box::new(manager)))
+}
+
+async fn print_game_stats(db: sled::Db) {
+    let run = || async {
+        log::info!("Writing games.txt");
+        let db = db.open_tree("archive")?;
+        let mut file = tokio::fs::File::create("games.txt").await?;
+        for entry in db.iter() {
+            let line = entry?.1;
+            file.write_all(&line).await?;
+            file.write_all(b"\n").await?;
+        }
+        file.flush().await?;
+        Ok::<(), Box<dyn Error>>(())
+    };
+    loop {
+        run().await.unwrap_or_else(|err| {
+            log::error!("Could not write games.txt: {:?}", err);
+        });
+        tokio::time::sleep(Duration::from_secs(30)).await;
+    }
 }

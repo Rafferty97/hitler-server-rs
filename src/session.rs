@@ -1,3 +1,4 @@
+use crate::time::iso8601;
 use crate::{error::GameError, game::Game};
 use dashmap::{mapref::entry::Entry, DashMap};
 use rand::{Rng, RngCore};
@@ -224,7 +225,7 @@ impl Session {
             let data = json!({
                 "game_id": self.id(),
                 "players": self.players.iter().map(|p| &p.name[..]).collect::<Value>(),
-                "created_ts": self.created_ts,
+                "created_ts": iso8601(self.created_ts),
                 "outcome": self.game.as_ref().map(Game::get_outcome_json).unwrap_or(Value::Null)
             })
             .to_string();
