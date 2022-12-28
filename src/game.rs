@@ -90,7 +90,6 @@ enum GameState {
         action: ExecutiveAction,
         can_select: EligiblePlayers,
         can_be_selected: EligiblePlayers,
-        communist_reveal: bool,
     },
     CommunistEnd {
         action: ExecutiveAction,
@@ -100,7 +99,6 @@ enum GameState {
         action: ExecutiveAction,
         chosen_player: Option<usize>,
         confirmations: Confirmations,
-        communist_reveal: bool,
     },
     GameOver(WinCondition),
 }
@@ -318,7 +316,6 @@ impl Game {
                 action,
                 can_select,
                 can_be_selected,
-                communist_reveal,
             } => {
                 use ExecutiveAction::*;
                 if !can_select.includes(player) {
@@ -327,14 +324,13 @@ impl Game {
                 if !can_be_selected.includes(other) {
                     return Err(GameError::InvalidPlayerChoice);
                 }
-                let (action, communist_reveal) = (*action, *communist_reveal);
+                let action = *action;
                 match action {
                     InvestigatePlayer | SpecialElection | Execution | Confession => {
                         self.state = GameState::ActionReveal {
                             action,
                             chosen_player: Some(player),
                             confirmations: Confirmations::new(self.num_players_alive()),
-                            communist_reveal,
                         };
                     }
                     Bugging | Radicalisation | Congress => {
@@ -375,21 +371,6 @@ impl Game {
             }
             _ => Err(GameError::InvalidAction),
         }
-    }
-
-    /// Called when a player reveals themselves as a communist in the hopes of executing the Capitalist.
-    pub fn reveal_communist(&mut self, player: usize) -> Result<(), GameError> {
-        let GameState::ChoosePlayer { action, communist_reveal, .. } = &mut self.state else {
-            return Err(GameError::InvalidAction);
-        };
-        if *action != ExecutiveAction::Execution || *communist_reveal {
-            return Err(GameError::InvalidAction);
-        }
-        if self.players.get(player).map(|p| p.party()) != Some(Party::Communist) {
-            return Err(GameError::InvalidAction);
-        }
-        *communist_reveal = true;
-        Ok(())
     }
 
     /// Called when the board has finished revealing the election result.
@@ -636,6 +617,12 @@ impl Game {
             return true;
         }
 
+        // Check whether the Capitalist has been executed
+        if self.capitalist().map(|p| p.alive) == Some(false) {
+            self.state = GameState::GameOver(WinCondition::CapitalistExecuted);
+            return true;
+        }
+
         false
     }
 
@@ -680,6 +667,13 @@ impl Game {
             .iter()
             .find(|player| player.role == Role::Hitler)
             .unwrap()
+    }
+
+    /// Gets the player who is the Capitalist.
+    fn capitalist(&self) -> Option<&Player> {
+        self.players
+            .iter()
+            .find(|player| player.role == Role::Capitalist)
     }
 
     /// Determines which players are eligble to be chancellor.

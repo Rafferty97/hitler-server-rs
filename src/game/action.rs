@@ -151,7 +151,6 @@ impl Game {
                 action,
                 can_select,
                 can_be_selected,
-                communist_reveal,
             } => can_select.includes(player_idx).then(|| {
                 use ExecutiveAction::*;
                 let kind = match action {

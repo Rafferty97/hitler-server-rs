@@ -77,7 +77,6 @@ impl Game {
                         .not_investigated()
                         .exclude(president)
                         .make(),
-                    communist_reveal: false,
                 };
             }
             SpecialElection => {
@@ -97,7 +96,6 @@ impl Game {
                         action,
                         can_select: EligiblePlayers::only_one(president),
                         can_be_selected: self.eligible_players().exclude(president).make(),
-                        communist_reveal: false,
                     };
                 }
             }
@@ -106,7 +104,6 @@ impl Game {
                     action,
                     can_select: EligiblePlayers::only_one(president),
                     can_be_selected: self.eligible_players().exclude(president).make(),
-                    communist_reveal: false,
                 };
             }
             PolicyPeak | FiveYearPlan => {
@@ -114,7 +111,6 @@ impl Game {
                     action,
                     chosen_player: None,
                     confirmations: Confirmations::new(self.num_players_alive()),
-                    communist_reveal: false,
                 };
             }
             Bugging | Radicalisation | Congress => {
@@ -125,7 +121,6 @@ impl Game {
                     action,
                     can_select: EligiblePlayers::only_one(chancellor),
                     can_be_selected: EligiblePlayers::only(&[president, chancellor]),
-                    communist_reveal: false,
                 };
             }
             Assassination => panic!("Invalid action"),
@@ -153,7 +148,6 @@ impl Game {
             action: ExecutiveAction::Assassination,
             can_select: EligiblePlayers::only_one(idx),
             can_be_selected: self.eligible_players().exclude(idx).make(),
-            communist_reveal: true,
         };
         Ok(())
     }
@@ -183,7 +177,6 @@ impl Game {
             action,
             can_select,
             can_be_selected,
-            communist_reveal: false,
         };
         Ok(())
     }
@@ -231,7 +224,6 @@ impl Game {
             action: ExecutiveAction::SpecialElection,
             can_select: EligiblePlayers::only_one(*president),
             can_be_selected: self.eligible_players().exclude(*president).make(),
-            communist_reveal: false,
         };
         Ok(())
     }
@@ -246,7 +238,6 @@ impl Game {
             action,
             chosen_player,
             confirmations: Confirmations::new(self.num_players_alive()),
-            communist_reveal: false,
         };
         Ok(())
     }
@@ -255,7 +246,7 @@ impl Game {
     pub fn end_executive_action(&mut self, player: Option<usize>) -> Result<(), GameError> {
         use ExecutiveAction::*;
 
-        let GameState::ActionReveal { action, chosen_player, confirmations, communist_reveal } = &mut self.state else {
+        let GameState::ActionReveal { action, chosen_player, confirmations } = &mut self.state else {
             return Err(GameError::InvalidAction);
         };
 
@@ -299,10 +290,6 @@ impl Game {
                 player.alive = false;
                 player.not_hitler = player.role != Role::Hitler;
 
-                if *communist_reveal && player.role == Role::Capitalist {
-                    self.state = GameState::GameOver(WinCondition::CapitalistExecuted);
-                    return Ok(());
-                }
                 if self.check_game_over() {
                     return Ok(());
                 }
