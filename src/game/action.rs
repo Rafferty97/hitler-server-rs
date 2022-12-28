@@ -1,7 +1,10 @@
 use super::{player::Role, votes::MonarchistVotes, Game, GameState};
 use crate::{
     error::GameError,
-    game::{confirmations::Confirmations, eligible::EligiblePlayers, government::Government},
+    game::{
+        confirmations::Confirmations, eligible::EligiblePlayers, government::Government,
+        WinCondition,
+    },
 };
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +28,8 @@ pub enum ExecutiveAction {
     Congress,
     /// The president or chancellor reveals their party membership.
     Confession,
+    /// The Anarchist is assassinating a player.
+    Assassination,
 }
 
 impl ToString for ExecutiveAction {
@@ -39,6 +44,7 @@ impl ToString for ExecutiveAction {
             ExecutiveAction::FiveYearPlan => "fiveYearPlan",
             ExecutiveAction::Congress => "congress",
             ExecutiveAction::Confession => "confession",
+            ExecutiveAction::Assassination => "assassination",
         }
         .to_string()
     }
@@ -51,7 +57,8 @@ pub enum ConfessionChoice {
 }
 
 impl Game {
-    fn start_executive_action(&mut self, action: ExecutiveAction) {
+    /// Begins an executive action.
+    pub fn start_executive_action(&mut self, action: ExecutiveAction) {
         use ExecutiveAction::*;
 
         // There must have been a last government for an executive power to be played
@@ -70,28 +77,85 @@ impl Game {
                         .not_investigated()
                         .exclude(president)
                         .make(),
+                    communist_reveal: false,
                 };
             }
-            SpecialElection | Execution => {
+            SpecialElection => {
+                let monarchist = self.players.iter().position(|p| p.role == Role::Monarchist);
+                if let Some(monarchist) = monarchist {
+                    self.state = GameState::MonarchistElection {
+                        monarchist,
+                        president,
+                        confirmed: false,
+                        monarchist_chancellor: None,
+                        president_chancellor: None,
+                        eligible_chancellors: self.eligble_chancellors(monarchist),
+                        votes: MonarchistVotes::new(self.num_players_alive(), monarchist),
+                    };
+                } else {
+                    self.state = GameState::ChoosePlayer {
+                        action,
+                        can_select: EligiblePlayers::only_one(president),
+                        can_be_selected: self.eligible_players().exclude(president).make(),
+                        communist_reveal: false,
+                    };
+                }
+            }
+            Execution => {
                 self.state = GameState::ChoosePlayer {
                     action,
                     can_select: EligiblePlayers::only_one(president),
                     can_be_selected: self.eligible_players().exclude(president).make(),
+                    communist_reveal: false,
                 };
             }
-            PolicyPeak => self.reveal_executive_action(action),
+            PolicyPeak | FiveYearPlan => {
+                self.state = GameState::ActionReveal {
+                    action,
+                    chosen_player: None,
+                    confirmations: Confirmations::new(self.num_players_alive()),
+                    communist_reveal: false,
+                };
+            }
             Bugging | Radicalisation | Congress => {
                 self.state = GameState::CommunistStart { action };
             }
-            FiveYearPlan => self.reveal_executive_action(action),
             Confession => {
                 self.state = GameState::ChoosePlayer {
                     action,
                     can_select: EligiblePlayers::only_one(chancellor),
                     can_be_selected: EligiblePlayers::only(&[president, chancellor]),
+                    communist_reveal: false,
                 };
             }
+            Assassination => panic!("Invalid action"),
         }
+    }
+
+    /// Called when the anarchist wishes to execute a player.
+    pub fn start_anarchist_assassination(&mut self, player: usize) -> Result<(), GameError> {
+        if !matches!(&self.state, GameState::CardReveal { .. }) {
+            return Err(GameError::InvalidAction);
+        }
+
+        let idx = player;
+        let Some(player) = self.players.get(player) else {
+            return Err(GameError::InvalidAction);
+        };
+        if !player.alive || player.role != Role::Anarchist {
+            return Err(GameError::InvalidAction);
+        }
+        if self.assassinated {
+            return Err(GameError::InvalidAction);
+        }
+
+        self.state = GameState::ChoosePlayer {
+            action: ExecutiveAction::Assassination,
+            can_select: EligiblePlayers::only_one(idx),
+            can_be_selected: self.eligible_players().exclude(idx).make(),
+            communist_reveal: true,
+        };
+        Ok(())
     }
 
     /// Called when the board has finished entering a "communist session".
@@ -119,61 +183,55 @@ impl Game {
             action,
             can_select,
             can_be_selected,
+            communist_reveal: false,
         };
         Ok(())
     }
 
-    /// Called when a player is chosen as the subject of an executive action.
-    pub fn choose_player_for_action(&mut self, action: ExecutiveAction, player: usize) {
-        use ExecutiveAction::*;
-        match action {
-            InvestigatePlayer | SpecialElection | Execution | Confession => {
-                self.state = GameState::ActionReveal {
-                    action,
-                    chosen_player: Some(player),
-                    confirmations: Confirmations::new(self.num_players_alive()),
-                };
-            }
-            Bugging | Radicalisation | Congress => {
-                self.state = GameState::CommunistEnd {
-                    action,
-                    chosen_player: Some(player),
-                };
-            }
-            _ => panic!("Invalid game state"),
+    /// Called when a player is ready to end the congress session.
+    pub fn end_congress(&mut self, player: usize) -> Result<(), GameError> {
+        let GameState::Congress = &self.state else {
+            return Err(GameError::InvalidAction);
+        };
+        if self.players.get(player).map(|p| p.role) != Some(Role::Communist) {
+            return Err(GameError::InvalidAction);
         }
+        self.state = GameState::CommunistEnd {
+            action: ExecutiveAction::Congress,
+            chosen_player: None,
+        };
+        Ok(())
     }
 
     /// Called when the monarchist elects to hijack a special election.
     pub fn hijack_special_election(&mut self, player: usize) -> Result<(), GameError> {
-        let (action, president_chancellor) = match &self.state {
-            GameState::ChoosePlayer { action, .. } => (action, None),
-            GameState::ActionReveal {
-                action,
-                chosen_player,
-                ..
-            } => (action, chosen_player),
-            _ => return Err(GameError::InvalidAction),
+        let GameState::MonarchistElection { monarchist, confirmed, .. } = &mut self.state else {
+            return Err(GameError::InvalidAction);
         };
-        if action != ExecutiveAction::SpecialElection {
+
+        if player != *monarchist || !self.players[*monarchist].alive {
+            return Err(GameError::InvalidAction);
+        };
+
+        *confirmed = true;
+        Ok(())
+    }
+
+    /// Called when the board has finished giving the monarchist a chance to hijack a special election.
+    pub fn start_special_election(&mut self) -> Result<(), GameError> {
+        let GameState::MonarchistElection { president, confirmed, .. } = &self.state else {
+            return Err(GameError::InvalidAction);
+        };
+
+        if *confirmed {
             return Err(GameError::InvalidAction);
         }
 
-        let monarchist = player;
-        let Some(player) = self.players.get(player) else {
-            return Err(GameError::InvalidAction);
-        };
-        if !player.alive || player.role != Role::Monarchist {
-            return Err(GameError::InvalidAction);
-        }
-
-        self.state = GameState::MonarchistElection {
-            monarchist,
-            president: self.last_government.unwrap().president,
-            monarchist_chancellor: None,
-            president_chancellor,
-            eligible_chancellors: self.eligble_chancellors(monarchist),
-            votes: MonarchistVotes::new(self.num_players_alive(), monarchist),
+        self.state = GameState::ChoosePlayer {
+            action: ExecutiveAction::SpecialElection,
+            can_select: EligiblePlayers::only_one(*president),
+            can_be_selected: self.eligible_players().exclude(*president).make(),
+            communist_reveal: false,
         };
         Ok(())
     }
@@ -188,6 +246,7 @@ impl Game {
             action,
             chosen_player,
             confirmations: Confirmations::new(self.num_players_alive()),
+            communist_reveal: false,
         };
         Ok(())
     }
@@ -196,7 +255,7 @@ impl Game {
     pub fn end_executive_action(&mut self, player: Option<usize>) -> Result<(), GameError> {
         use ExecutiveAction::*;
 
-        let GameState::ActionReveal { action, chosen_player, confirmations } = &mut self.state else {
+        let GameState::ActionReveal { action, chosen_player, confirmations, communist_reveal } = &mut self.state else {
             return Err(GameError::InvalidAction);
         };
 
@@ -209,8 +268,8 @@ impl Game {
                 }
             }
             // Only the board may end these actions
-            SpecialElection | Execution | FiveYearPlan | Confession => {
-                if player != None {
+            SpecialElection | Execution | FiveYearPlan | Confession | Assassination => {
+                if player.is_some() {
                     return Err(GameError::InvalidAction);
                 }
             }
@@ -232,25 +291,33 @@ impl Game {
                 self.start_election(None);
             }
             SpecialElection => {
-                self.start_election(chosen_player);
+                let player = *chosen_player;
+                self.start_election(player);
             }
-            Execution => {
+            Execution | Assassination => {
                 let player = &mut self.players[chosen_player.unwrap()];
                 player.alive = false;
                 player.not_hitler = player.role != Role::Hitler;
+
+                if *communist_reveal && player.role == Role::Capitalist {
+                    self.state = GameState::GameOver(WinCondition::CapitalistExecuted);
+                    return Ok(());
+                }
                 if self.check_game_over() {
                     return Ok(());
                 }
+
                 self.start_election(None);
             }
             Radicalisation | Congress => {
                 if let Some(player) = chosen_player {
-                    let player = &mut self.players[player];
+                    let player = &mut self.players[*player];
                     if matches!(player.role, Role::Liberal | Role::Centrist) {
                         player.role = Role::Communist;
                         self.radicalised = true;
                     }
                 }
+
                 self.start_election(None);
             }
             _ => {

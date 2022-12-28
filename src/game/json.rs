@@ -2,23 +2,12 @@ use super::{
     player::{Player, Role},
     Game,
 };
-use crate::game::{party::Party, GameState, LegislativeSessionTurn, VetoStatus};
+use crate::game::{party::Party, GameState};
 use serde_json::{json, Value};
 
 impl Game {
     pub fn get_board_json(&self) -> Value {
-        json!({
-            "players": self.get_players_json(None),
-            "state": self.get_board_state_json(),
-            "electionTracker": self.election_tracker,
-            "numLiberalCards": self.board.liberal_cards,
-            "numFascistCards": self.board.fascist_cards,
-            "numCommunistCards": self.board.communist_cards,
-            "drawPile": self.deck.count(),
-            "lastPresident": self.last_government.map(|g| g.president as i32).unwrap_or(-1),
-            "lastChancellor": self.last_government.map(|g| g.chancellor as i32).unwrap_or(-1),
-            "_hidden": self.get_hidden_state_json()
-        })
+        serde_json::to_value(self).unwrap()
     }
 
     pub fn get_lobby_board_json(players: &[String]) -> Value {
@@ -131,103 +120,7 @@ impl Game {
     }
 
     fn get_board_state_json(&self) -> Value {
-        use super::ExecutiveAction::*;
-        use super::GameState::*;
-        use super::LegislativeSessionTurn::*;
-
-        match &self.state {
-            Night { .. } => json!({ "type": "nightRound" }),
-            Election {
-                president,
-                chancellor,
-                votes,
-                ..
-            } => json!({
-                "type": "election",
-                "presidentElect": president,
-                "chancellorElect": chancellor,
-                "votes": votes.votes(),
-                "voteResult": votes.outcome()
-            }),
-            MonarchistElection {
-                monarchist,
-                president,
-                monarchist_chancellor,
-                president_chancellor,
-                votes,
-                ..
-            } => json!({
-                "type": "monarchistElection",
-                "monarchist": monarchist,
-                "president": president,
-                "monarchistChancellor": monarchist_chancellor,
-                "presidentChancellor": president_chancellor,
-                "votes": votes.votes(),
-                "voteResult": votes.outcome()
-            }),
-            LegislativeSession {
-                president,
-                chancellor,
-                turn,
-            } => json!({
-                "type": "legislativeSession",
-                "president": president,
-                "chancellor": chancellor,
-                "turn": match turn {
-                    President { .. } => "President",
-                    Chancellor { veto, .. } => match veto {
-                        VetoStatus::VetoDenied => "VetoRejected",
-                        _ => "Chancellor"
-                    },
-                    VetoRequested { .. } => "Veto",
-                    VetoApproved => "VetoApproved"
-                }
-            }),
-            CardReveal { result, chaos, .. } => json!({
-                "type": "cardReveal",
-                "card": result.to_string(),
-                "chaos": chaos
-            }),
-            ExecutiveAction {
-                action,
-                player_chosen,
-                monarchist,
-                ..
-            } => json!({
-                "type": "executiveAction",
-                "action": match action {
-                    InvestigatePlayer => "investigate",
-                    SpecialElection { .. } => "specialElection",
-                    PolicyPeak => "policyPeak",
-                    Execution => "execution",
-                    _ => unimplemented!() // FIXME
-                },
-                "playerChosen": player_chosen,
-                "monarchist": monarchist,
-            }),
-            GameOver(condition) => json!({
-                "type": "end",
-                "condition": condition.to_string()
-            }),
-        }
-    }
-
-    fn get_hidden_state_json(&self) -> Value {
-        json!({
-            "players": serde_json::to_value(&self.players).unwrap(),
-            "deck": serde_json::to_value(&self.deck).unwrap(),
-            "hand": match &self.state {
-                GameState::LegislativeSession { turn, .. } => {
-                    match turn {
-                        LegislativeSessionTurn::President { cards } => serde_json::to_value(cards).unwrap(),
-                        LegislativeSessionTurn::Chancellor { cards, .. } => serde_json::to_value(cards).unwrap(),
-                        LegislativeSessionTurn::VetoRequested { cards, .. } => serde_json::to_value(cards).unwrap(),
-                        _ => Value::Null
-                    }
-                },
-                _ => Value::Null
-            }
-        })
+        serde_json::to_value(self).unwrap()
     }
 
     fn get_player_action_json(&self, idx: usize, player: &Player) -> Value {
@@ -261,7 +154,7 @@ impl Game {
                         "type": "choosePlayer",
                         "subtype": "nominateChancellor",
                         "players": (0..self.num_players())
-                            .filter(|i| eligible_chancellors[*i])
+                            .filter(|i| eligible_chancellors.includes(*i))
                             .collect::<Value>(),
                     });
                 }
@@ -302,40 +195,6 @@ impl Game {
                     json!({ "type": "nextRound" })
                 } else {
                     Value::Null
-                }
-            }
-            ExecutiveAction {
-                president,
-                action,
-                player_chosen,
-                eligible_players,
-                monarchist,
-            } => {
-                use super::ExecutiveAction::*;
-                if idx != *president {
-                    return Value::Null;
-                }
-                match (*action, player_chosen) {
-                    (InvestigatePlayer, Some(other)) => json!({
-                        "type": "investigateParty",
-                        "player": other,
-                        "party": self.players[*other].party().to_string(),
-                    }),
-                    (Execution | InvestigatePlayer | SpecialElection, None) => json!({
-                        "type": "choosePlayer",
-                        "subtype": action.to_string(),
-                        "players": (0..self.num_players())
-                            .filter(|i| eligible_players[*i])
-                            .collect::<Value>()
-                    }),
-                    (PolicyPeak, None) => json!({
-                        "type": "policyPeak",
-                        "cards": self.deck.peek_three()
-                            .iter()
-                            .map(Party::to_string)
-                            .collect::<Value>()
-                    }),
-                    _ => Value::Null,
                 }
             }
             GameOver(outcome) => {

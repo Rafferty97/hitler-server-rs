@@ -65,7 +65,7 @@ impl MonarchistVotes {
         self.votes[player_idx].is_some()
     }
 
-    /// Records the vote of a player.
+    /// Records the vote of a player, where `true` signifies the monarchist's selection.
     pub fn vote(&mut self, player_idx: usize, vote: bool) {
         self.votes[player_idx] = Some(vote);
     }

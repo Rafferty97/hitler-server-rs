@@ -38,6 +38,7 @@ pub struct Game {
     election_tracker: usize,
     last_government: Option<Government>,
     radicalised: bool,
+    assassinated: bool,
     rng: rand_chacha::ChaCha8Rng,
 }
 
@@ -58,6 +59,8 @@ enum GameState {
         monarchist: usize,
         /// The last president who unlocked the special election power
         president: usize,
+        /// Whether the monarchist has elected to hijack the election.
+        confirmed: bool,
         /// The monarchist's choice for chancellor
         monarchist_chancellor: Option<usize>,
         /// The last president's choice for chancellor
@@ -86,6 +89,7 @@ enum GameState {
         action: ExecutiveAction,
         can_select: EligiblePlayers,
         can_be_selected: EligiblePlayers,
+        communist_reveal: bool,
     },
     CommunistEnd {
         action: ExecutiveAction,
@@ -95,6 +99,7 @@ enum GameState {
         action: ExecutiveAction,
         chosen_player: Option<usize>,
         confirmations: Confirmations,
+        communist_reveal: bool,
     },
     GameOver(WinCondition),
 }
@@ -130,6 +135,8 @@ enum WinCondition {
     HitlerChancellor,
     /// Hitler was executed
     HitlerExecuted,
+    /// The Capitalist was executed
+    CapitalistExecuted,
 }
 
 impl ToString for WinCondition {
@@ -140,6 +147,7 @@ impl ToString for WinCondition {
             WinCondition::CommunistPolicyTrack => "CommunistPolicyTrack",
             WinCondition::HitlerChancellor => "HitlerChancellor",
             WinCondition::HitlerExecuted => "HitlerExecuted",
+            WinCondition::CapitalistExecuted => "CapitalistExecuted",
         }
         .to_string()
     }
@@ -181,6 +189,7 @@ impl Game {
             election_tracker: 0,
             last_government: None,
             radicalised: false,
+            assassinated: false,
             rng,
         }
     }
@@ -237,7 +246,7 @@ impl Game {
         }
         self.check_deck();
         if let (false, Some(action)) = (chaos, self.board.get_executive_power(result)) {
-            self.play_executive_power(action);
+            self.start_executive_action(action);
         } else {
             self.start_election(None);
         }
@@ -261,18 +270,30 @@ impl Game {
     /// Called when a player casts their vote.
     pub fn cast_vote(&mut self, player: usize, vote: bool) -> Result<(), GameError> {
         self.check_player_index(player)?;
-        match &mut self.state {
-            GameState::Election {
-                chancellor, votes, ..
-            } => {
-                if chancellor.is_none() {
-                    return Err(GameError::InvalidAction);
-                }
-                votes.vote(player, vote);
-                Ok(())
-            }
-            _ => Err(GameError::InvalidAction),
+        let GameState::Election {  chancellor, votes, .. } = &mut self.state else {
+            return Err(GameError::InvalidAction);
+        };
+        if chancellor.is_none() {
+            return Err(GameError::InvalidAction);
         }
+        votes.vote(player, vote);
+        Ok(())
+    }
+
+    /// Called when a player casts their vote in a monarchist election.
+    pub fn cast_monarchist_vote(&mut self, player: usize, vote: usize) -> Result<(), GameError> {
+        self.check_player_index(player)?;
+        let GameState::MonarchistElection { monarchist_chancellor, president_chancellor, votes, .. } = &mut self.state else {
+            return Err(GameError::InvalidAction);
+        };
+        let (Some(c1), Some(c2)) = (*monarchist_chancellor, *president_chancellor) else {
+            return Err(GameError::InvalidAction);
+        };
+        if vote == c1 || vote == c2 {
+            return Err(GameError::InvalidPlayerChoice);
+        };
+        votes.vote(player, vote == c1);
+        Ok(())
     }
 
     /// Called when a player chooses another player.
@@ -290,7 +311,7 @@ impl Game {
                 if player != *president || chancellor.is_some() {
                     return Err(GameError::InvalidAction);
                 }
-                if !eligible_chancellors[other] {
+                if !eligible_chancellors.includes(other) {
                     return Err(GameError::InvalidPlayerChoice);
                 }
                 *chancellor = Some(other);
@@ -300,14 +321,59 @@ impl Game {
                 action,
                 can_select,
                 can_be_selected,
+                communist_reveal,
             } => {
+                use ExecutiveAction::*;
                 if !can_select.includes(player) {
                     return Err(GameError::InvalidAction);
                 }
                 if !can_be_selected.includes(other) {
                     return Err(GameError::InvalidPlayerChoice);
                 }
-                self.choose_player_for_action(action, other);
+                let (action, communist_reveal) = (*action, *communist_reveal);
+                match action {
+                    InvestigatePlayer | SpecialElection | Execution | Confession => {
+                        self.state = GameState::ActionReveal {
+                            action,
+                            chosen_player: Some(player),
+                            confirmations: Confirmations::new(self.num_players_alive()),
+                            communist_reveal,
+                        };
+                    }
+                    Bugging | Radicalisation | Congress => {
+                        self.state = GameState::CommunistEnd {
+                            action,
+                            chosen_player: Some(player),
+                        };
+                    }
+                    _ => panic!("Invalid game state"),
+                }
+                Ok(())
+            }
+            GameState::MonarchistElection {
+                monarchist,
+                president,
+                confirmed,
+                monarchist_chancellor,
+                president_chancellor,
+                eligible_chancellors,
+                ..
+            } => {
+                if !*confirmed {
+                    return Err(GameError::InvalidAction);
+                }
+                let (turn, chancellor) = if monarchist_chancellor.is_none() {
+                    (*monarchist, monarchist_chancellor)
+                } else if president_chancellor.is_none() {
+                    (*president, monarchist_chancellor)
+                } else {
+                    return Err(GameError::InvalidAction);
+                };
+                if player != turn || !eligible_chancellors.includes(other) {
+                    return Err(GameError::InvalidPlayerChoice);
+                }
+                *chancellor = Some(other);
+                eligible_chancellors.exclude(other);
                 Ok(())
             }
             _ => Err(GameError::InvalidAction),
@@ -316,27 +382,54 @@ impl Game {
 
     /// Called when the board has finished revealing the election result.
     pub fn end_voting(&mut self) -> Result<(), GameError> {
-        let GameState::Election { president, chancellor, votes, .. } = &self.state else {
-            return Err(GameError::InvalidAction);
-        };
-        let Some(chancellor) = chancellor else {
+        match &self.state {
+            GameState::Election {
+                president,
+                chancellor,
+                votes,
+                ..
+            } => {
+                let Some(chancellor) = chancellor else {
                     return Err(GameError::InvalidAction);
                 };
-        let Some(passed) = votes.outcome() else {
+                let Some(passed) = votes.outcome() else {
                     return Err(GameError::InvalidAction);
                 };
-        let government = Government {
-            president: *president,
-            chancellor: *chancellor,
-        };
-        if passed {
-            self.start_legislative_session(government);
-            self.check_game_over();
-        } else {
-            self.election_tracker += 1;
-            self.start_election(None);
+                let government = Government {
+                    president: *president,
+                    chancellor: *chancellor,
+                };
+                if passed {
+                    self.start_legislative_session(government);
+                    self.check_game_over();
+                } else {
+                    self.election_tracker += 1;
+                    self.start_election(None);
+                }
+                Ok(())
+            }
+            GameState::MonarchistElection {
+                monarchist,
+                monarchist_chancellor,
+                president_chancellor,
+                votes,
+                ..
+            } => {
+                let (Some(c1), Some(c2)) = (*monarchist_chancellor, *president_chancellor) else {
+                    return Err(GameError::InvalidAction);
+                };
+                let Some(outcome) = votes.outcome() else {
+                    return Err(GameError::InvalidAction);
+                };
+                self.start_legislative_session(Government {
+                    president: *monarchist,
+                    chancellor: if outcome { c1 } else { c2 },
+                });
+                self.check_game_over();
+                Ok(())
+            }
+            _ => Err(GameError::InvalidAction),
         }
-        Ok(())
     }
 
     /// Called when a player discards a policy from their hand.
@@ -438,6 +531,22 @@ impl Game {
     /// Returns true if the game is over.
     pub fn game_over(&self) -> bool {
         matches!(self.state, GameState::GameOver { .. })
+    }
+
+    /// Returns whether a particular player has won.
+    pub fn player_has_won(&self, player: usize) -> bool {
+        let GameState::GameOver(outcome) = self.state else {
+            return false;
+        };
+        let player = &self.players[player];
+        match outcome {
+            WinCondition::LiberalPolicyTrack => player.party() == Party::Liberal,
+            WinCondition::FascistPolicyTrack => player.party() == Party::Fascist,
+            WinCondition::CommunistPolicyTrack => player.party() == Party::Communist,
+            WinCondition::HitlerExecuted => !matches!(player.role, Role::Fascist | Role::Hitler),
+            WinCondition::HitlerChancellor => matches!(player.role, Role::Fascist | Role::Hitler),
+            WinCondition::CapitalistExecuted => player.party() == Party::Communist,
+        }
     }
 
     fn start_election(&mut self, president: Option<usize>) {
@@ -559,13 +668,6 @@ impl Game {
             .iter()
             .find(|player| player.role == Role::Hitler)
             .unwrap()
-    }
-
-    /// Gets the player who is the monarchist.
-    fn monarchist(&self) -> Option<&Player> {
-        self.players
-            .iter()
-            .find(|player| player.role == Role::Monarchist)
     }
 
     /// Determines which players are eligble to be chancellor.

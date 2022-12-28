@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::MAX_PLAYERS;
+
 /// Tracks the acknowledgement status of each player,
 /// such that game play can only proceed once all players have elected to move on.
 #[derive(Clone, Copy, Serialize, Deserialize, Debug)]

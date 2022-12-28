@@ -1,5 +1,7 @@
 use super::{party::Party, player::Role, Game, MAX_PLAYERS};
+use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Copy, Serialize, Deserialize, Debug)]
 pub struct EligiblePlayers {
     eligible: [bool; MAX_PLAYERS],
 }
@@ -15,6 +17,10 @@ impl EligiblePlayers {
         Self {
             eligible: core::array::from_fn(|i| players.contains(&i)),
         }
+    }
+
+    pub fn exclude(&mut self, player: usize) {
+        self.eligible[player] = false;
     }
 
     pub fn includes(&self, player: usize) -> bool {
@@ -39,27 +45,30 @@ impl Game {
 }
 
 impl<'a> EligiblePlayersBuilder<'a> {
-    pub fn exclude(self, player: usize) -> Self {
+    pub fn exclude(mut self, player: usize) -> Self {
         self.eligible[player] = false;
         self
     }
 
-    pub fn ordinary_communist(self) -> Self {
+    pub fn ordinary_communist(mut self) -> Self {
         for (idx, player) in self.game.players.iter().enumerate() {
             self.eligible[idx] &= player.role == Role::Communist;
         }
+        self
     }
 
-    pub fn not_communist(self) -> Self {
+    pub fn not_communist(mut self) -> Self {
         for (idx, player) in self.game.players.iter().enumerate() {
             self.eligible[idx] &= player.party() != Party::Communist;
         }
+        self
     }
 
-    pub fn not_investigated(self) -> Self {
+    pub fn not_investigated(mut self) -> Self {
         for (idx, player) in self.game.players.iter().enumerate() {
             self.eligible[idx] &= !player.investigated;
         }
+        self
     }
 
     pub fn make(self) -> EligiblePlayers {

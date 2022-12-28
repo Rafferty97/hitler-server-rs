@@ -1,4 +1,5 @@
 #![cfg(test)]
+#![allow(clippy::bool_assert_comparison)]
 
 use super::confirmations::Confirmations;
 use super::player::Player;
@@ -49,6 +50,8 @@ fn liberal_track_victory() {
             confirmations: Confirmations::new(5),
             board_ready: false,
         },
+        radicalised: false,
+        assassinated: false,
     };
 
     game.end_card_reveal(None).unwrap();
@@ -88,6 +91,8 @@ fn fascist_track_victory() {
             confirmations: Confirmations::new(5),
             board_ready: false,
         },
+        radicalised: false,
+        assassinated: false,
     };
 
     game.end_card_reveal(None).unwrap();
@@ -130,6 +135,8 @@ fn eligible_chancellors_5players() {
             confirmations: Confirmations::new(5),
             board_ready: false,
         },
+        radicalised: false,
+        assassinated: false,
     };
 
     for i in 0..5 {
@@ -143,9 +150,10 @@ fn eligible_chancellors_5players() {
 
     assert_eq!(president, 1);
     assert_eq!(chancellor, None);
-    assert_eq!(
-        &eligible_chancellors[0..5],
-        &[true, false, true, false, true]
-    );
+    assert_eq!(eligible_chancellors.includes(0), true);
+    assert_eq!(eligible_chancellors.includes(1), false);
+    assert_eq!(eligible_chancellors.includes(2), true);
+    assert_eq!(eligible_chancellors.includes(3), false);
+    assert_eq!(eligible_chancellors.includes(4), true);
     assert_eq!(votes.outcome(), None);
 }
