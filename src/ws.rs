@@ -1,6 +1,7 @@
 use crate::{
     client::{Client, PlayerAction},
     error::GameError,
+    game::GameOptions,
     session::SessionManager,
 };
 use futures_util::{select, FutureExt, SinkExt, StreamExt, TryStreamExt};
@@ -65,7 +66,7 @@ pub async fn accept_connection(stream: TcpStream, manager: &SessionManager) {
 
 /// A message sent by a game client to the server.
 enum Request {
-    CreateGame,
+    CreateGame { options: GameOptions },
     JoinAsBoard { game_id: String },
     JoinAsPlayer { game_id: String, name: String },
     StartGame,
@@ -94,7 +95,9 @@ fn parse_request(req: &Value) -> Result<Request, WsError> {
     use WsError as PE;
 
     match req["type"].as_str().unwrap_or("") {
-        "create_game" => Ok(Request::CreateGame),
+        "create_game" => Ok(Request::CreateGame {
+            options: Default::default(), // FIXME
+        }),
         "board_join" => {
             let game_id = req["gameId"].as_str().ok_or(PE)?.to_string();
             Ok(Request::JoinAsBoard { game_id })
@@ -158,8 +161,8 @@ fn parse_request(req: &Value) -> Result<Request, WsError> {
 /// Processes a request from the client.
 fn process_request(req: Request, client: &mut Client) -> Result<Option<Response>, GameError> {
     match req {
-        Request::CreateGame => {
-            let game_id = client.create_game()?;
+        Request::CreateGame { options } => {
+            let game_id = client.create_game(options)?;
             return Ok(Some(Response::GameCreated { game_id }));
         }
         Request::JoinAsBoard { game_id } => {

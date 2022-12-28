@@ -2,7 +2,7 @@ use super::{
     player::{Player, Role},
     Game,
 };
-use crate::game::{party::Party, GameState};
+use crate::game::GameState;
 use serde_json::{json, Value};
 
 impl Game {
@@ -17,6 +17,7 @@ impl Game {
             "electionTracker": 0,
             "numLiberalCards": 0,
             "numFascistCards": 0,
+            "numCommunistCards": 0, // FIXME: Hide when not using communists
             "drawPile": 0,
             "lastPresident": -1,
             "lastChancellor": -1,

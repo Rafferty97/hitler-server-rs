@@ -1,4 +1,4 @@
-use super::{action::ExecutiveAction, party::Party};
+use super::{executive_power::ExecutiveAction, party::Party};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

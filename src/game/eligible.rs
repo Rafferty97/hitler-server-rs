@@ -26,6 +26,15 @@ impl EligiblePlayers {
     pub fn includes(&self, player: usize) -> bool {
         self.eligible[player]
     }
+
+    pub fn names(&self, game: &Game) -> Vec<String> {
+        game.players
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| self.includes(*i))
+            .map(|(_, p)| p.name.clone())
+            .collect()
+    }
 }
 
 pub struct EligiblePlayersBuilder<'a> {

@@ -1,6 +1,6 @@
 use crate::{
     error::GameError,
-    game::Game as GameInner,
+    game::{Game as GameInner, GameOptions},
     session::{SessionHandle, SessionManager},
 };
 use serde_json::Value;
@@ -25,6 +25,7 @@ pub enum PlayerAction {
     VetoAgenda,
     AcceptVeto,
     RejectVeto,
+    // FIXME
 }
 
 impl<'a> Client<'a> {
@@ -39,8 +40,8 @@ impl<'a> Client<'a> {
     }
 
     /// Creates a new game session, returning its ID.
-    pub fn create_game(&mut self) -> Result<String, GameError> {
-        let session = self.manager.create_game();
+    pub fn create_game(&mut self, options: GameOptions) -> Result<String, GameError> {
+        let session = self.manager.create_game(options);
         let id = session.lock().unwrap().id().to_owned();
         Ok(id)
     }
@@ -96,6 +97,7 @@ impl<'a> Client<'a> {
             "cardReveal" => game.end_card_reveal(None),
             "executiveAction" => game.end_executive_action(None),
             "legislativeSession" => game.end_legislative_session(),
+            // FIXME
             _ => Err(GameError::InvalidAction),
         })
     }
@@ -116,6 +118,7 @@ impl<'a> Client<'a> {
             PlayerAction::VetoAgenda => game.veto_agenda(player),
             PlayerAction::AcceptVeto => game.veto_agenda(player),
             PlayerAction::RejectVeto => game.reject_veto(player),
+            // FIXME
         })
     }
 

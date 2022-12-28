@@ -1,7 +1,7 @@
-use self::action::ExecutiveAction;
 use self::board::Board;
 use self::deck::Deck;
 use self::eligible::EligiblePlayers;
+use self::executive_power::ExecutiveAction;
 pub use self::options::GameOptions;
 use self::party::Party;
 use self::player::{assign_roles, Player, Role};
@@ -16,6 +16,7 @@ mod board;
 mod confirmations;
 mod deck;
 mod eligible;
+mod executive_power;
 mod government;
 mod json;
 mod options;
@@ -374,6 +375,21 @@ impl Game {
             }
             _ => Err(GameError::InvalidAction),
         }
+    }
+
+    /// Called when a player reveals themselves as a communist in the hopes of executing the Capitalist.
+    pub fn reveal_communist(&mut self, player: usize) -> Result<(), GameError> {
+        let GameState::ChoosePlayer { action, communist_reveal, .. } = &mut self.state else {
+            return Err(GameError::InvalidAction);
+        };
+        if *action != ExecutiveAction::Execution || *communist_reveal {
+            return Err(GameError::InvalidAction);
+        }
+        if self.players.get(player).map(|p| p.party()) != Some(Party::Communist) {
+            return Err(GameError::InvalidAction);
+        }
+        *communist_reveal = true;
+        Ok(())
     }
 
     /// Called when the board has finished revealing the election result.

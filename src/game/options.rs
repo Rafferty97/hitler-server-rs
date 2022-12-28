@@ -1,5 +1,3 @@
-use std::ops::RangeInclusive;
-
 use serde::{Deserialize, Serialize};
 
 /// Options for customising the game of Secret Hitler or Secret Hitler XL.
@@ -15,4 +13,22 @@ pub struct GameOptions {
     pub capitalist: bool,
     /// Whether to include the centrists.
     pub centrists: bool,
+}
+
+impl GameOptions {
+    pub fn min_players(&self) -> usize {
+        if self.communists {
+            6
+        } else {
+            5
+        }
+    }
+
+    pub fn max_players(&self) -> usize {
+        if self.communists {
+            16
+        } else {
+            10
+        }
+    }
 }

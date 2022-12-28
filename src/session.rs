@@ -46,6 +46,7 @@ pub type SessionHandle = Arc<Mutex<Session>>;
 #[derive(Serialize, Deserialize)]
 enum Game {
     Lobby {
+        options: GameOptions,
         players: Vec<String>,
     },
     Playing {
@@ -80,14 +81,14 @@ impl SessionManager {
         Ok(Self { sessions, dbs })
     }
 
-    pub fn create_game(&self) -> SessionHandle {
+    pub fn create_game(&self, options: GameOptions) -> SessionHandle {
         loop {
             let id = Self::random_id();
             let entry = self.sessions.entry(id);
             if let Entry::Occupied(_) = entry {
                 continue;
             }
-            let session = Session::new(entry.key().clone(), self.dbs.clone());
+            let session = Session::new(entry.key().clone(), self.dbs.clone(), options);
             let session = Arc::new(Mutex::new(session));
             entry.or_insert(session.clone());
             break session;
@@ -146,8 +147,12 @@ impl SessionManager {
 }
 
 impl Session {
-    fn new(id: String, dbs: Dbs) -> Self {
-        Self::hydrate(id, dbs, Game::Lobby { players: vec![] })
+    fn new(id: String, dbs: Dbs, options: GameOptions) -> Self {
+        let game = Game::Lobby {
+            options,
+            players: vec![],
+        };
+        Self::hydrate(id, dbs, game)
     }
 
     fn hydrate(id: String, dbs: Dbs, game: Game) -> Self {
@@ -174,11 +179,11 @@ impl Session {
     /// adding the player to the game if no player with that name has joined yet.
     pub fn get_or_insert_player(&mut self, name: &str) -> Result<usize, GameError> {
         match &mut self.game {
-            Game::Lobby { players } => {
+            Game::Lobby { options, players } => {
                 if let Some(idx) = players.iter().position(|n| n == name) {
                     return Ok(idx);
                 }
-                if players.len() == 10 {
+                if players.len() == options.max_players() {
                     return Err(GameError::TooManyPlayers);
                 }
                 self.player_states.push(watch::channel(Value::Null).0);
@@ -268,7 +273,7 @@ impl Session {
     /// Notifies all connected clients of the new game state.
     fn notify(&mut self) {
         match &self.game {
-            Game::Lobby { players } => {
+            Game::Lobby { players, .. } => {
                 let state = GameInner::get_lobby_board_json(players);
                 self.board_state.send_replace(state);
                 for (idx, player_state) in self.player_states.iter().enumerate() {
@@ -327,7 +332,7 @@ impl Session {
 impl Game {
     fn num_players(&self) -> usize {
         match self {
-            Game::Lobby { players } => players.len(),
+            Game::Lobby { players, .. } => players.len(),
             Game::Playing { game, .. } => game.num_players(),
             Game::Over => 0,
         }
@@ -335,7 +340,7 @@ impl Game {
 
     fn player_names(&self) -> Vec<String> {
         match self {
-            Game::Lobby { players } => players.clone(),
+            Game::Lobby { players, .. } => players.clone(),
             Game::Playing { game, .. } => game.player_names().map(|s| s.to_string()).collect(),
             Game::Over => vec![],
         }
