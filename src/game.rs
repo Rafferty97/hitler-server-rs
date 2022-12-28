@@ -155,16 +155,12 @@ impl ToString for WinCondition {
 
 impl Game {
     /// Creates a new game of Secret Hitler.
-    pub fn new(opts: GameOptions, player_names: &[String], seed: u64) -> Self {
-        // Check the number of players
+    pub fn new(opts: GameOptions, player_names: &[String], seed: u64) -> Result<Self, GameError> {
         let num_players = player_names.len();
-        if !(5..=10).contains(&num_players) {
-            panic!("Must have at 5-10 players in a game.");
-        }
 
         // Generate the players and their roles
         let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
-        let roles = assign_roles(num_players, &opts, &mut rng);
+        let roles = assign_roles(num_players, &opts, &mut rng)?;
         let players = player_names
             .iter()
             .zip(roles)
@@ -177,7 +173,7 @@ impl Game {
         deck.shuffle(&board, &mut rng);
 
         // Return the new game
-        Game {
+        Ok(Game {
             opts,
             players,
             board,
@@ -191,7 +187,7 @@ impl Game {
             radicalised: false,
             assassinated: false,
             rng,
-        }
+        })
     }
 
     /// Gets the player names.

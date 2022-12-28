@@ -5,7 +5,9 @@ use thiserror::Error;
 pub enum GameError {
     #[error("game does not exist")]
     GameNotFound,
-    #[error("cannot have more than 10 players in a game")]
+    #[error("too few players in the game")]
+    TooFewPlayers,
+    #[error("too many players in the game")]
     TooManyPlayers,
     #[error("no player exists with the given name")]
     PlayerNotFound,

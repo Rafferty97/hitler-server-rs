@@ -1,5 +1,7 @@
 use std::iter::repeat;
 
+use crate::error::GameError;
+
 use super::{party::Party, GameOptions};
 use rand::prelude::SliceRandom;
 use serde::{Deserialize, Serialize};
@@ -67,28 +69,35 @@ impl Player {
     }
 }
 
-pub fn assign_roles(num_players: usize, opts: &GameOptions, rng: &mut impl rand::Rng) -> Vec<Role> {
+pub fn assign_roles(
+    num_players: usize,
+    opts: &GameOptions,
+    rng: &mut impl rand::Rng,
+) -> Result<Vec<Role>, GameError> {
     let mut roles = vec![];
 
     // Determine the total number of fascists and communists to include
     let mut fascists = match (opts.communists, num_players) {
+        (false, ..=4) => return Err(GameError::TooFewPlayers),
         (false, 5..=6) => 2,
         (false, 7..=8) => 3,
         (false, 9..=10) => 4,
+        (true, ..=5) => return Err(GameError::TooFewPlayers),
         (true, 6..=7) => 2,
         (true, 8..=10) => 3,
         (true, 11..=14) => 4,
         (true, 15..=16) => 5,
-        _ => panic!("Invalid number of players"),
+        _ => return Err(GameError::TooManyPlayers),
     };
 
     let mut communists = match (opts.communists, num_players) {
         (false, _) => 0,
+        (true, ..=5) => return Err(GameError::TooFewPlayers),
         (true, 6..=8) => 1,
         (true, 9..=12) => 2,
         (true, 13..=15) => 3,
         (true, 16) => 4,
-        _ => panic!("Invalid number of players"),
+        _ => return Err(GameError::TooManyPlayers),
     };
 
     // Add the fascist players
@@ -103,7 +112,7 @@ pub fn assign_roles(num_players: usize, opts: &GameOptions, rng: &mut impl rand:
     roles.extend(repeat(Role::Fascist).take(fascists));
 
     // Add the communist players
-    if opts.anarchist {
+    if communists > 0 && opts.anarchist {
         roles.push(Role::Anarchist);
         communists -= 1;
     }
@@ -125,7 +134,7 @@ pub fn assign_roles(num_players: usize, opts: &GameOptions, rng: &mut impl rand:
 
     // Shuffle the roles and return
     roles.shuffle(rng);
-    roles
+    Ok(roles)
 }
 
 #[cfg(test)]
@@ -144,7 +153,7 @@ mod test {
             centrists: true,
             monarchist: false,
         };
-        let roles = assign_roles(10, &opts, &mut rand::thread_rng());
+        let roles = assign_roles(10, &opts, &mut rand::thread_rng()).unwrap();
         assert_eq!(roles.iter().filter(|r| **r == Role::Hitler).count(), 1);
         assert_eq!(roles.iter().filter(|r| **r == Role::Monarchist).count(), 0);
         assert_eq!(roles.iter().filter(|r| **r == Role::Fascist).count(), 2);

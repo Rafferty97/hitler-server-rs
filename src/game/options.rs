@@ -16,15 +16,3 @@ pub struct GameOptions {
     /// Whether to include the centrists.
     pub centrists: bool,
 }
-
-impl GameOptions {
-    /// Determines the allowable number of players given a game configuration
-    pub fn allowed_players(&self) -> RangeInclusive<usize> {
-        // FIXME: Take into account special roles
-        if self.communists {
-            6..=16
-        } else {
-            5..=10
-        }
-    }
-}

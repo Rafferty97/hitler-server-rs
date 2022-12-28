@@ -18,7 +18,7 @@ use rand_chacha::ChaCha8Rng;
 fn can_create_game() {
     let players = ["Alex", "Bob", "Charlie", "David", "Ed"].map(|s| s.into());
     let opts = GameOptions::default();
-    let game = Game::new(opts, &players, 0);
+    let game = Game::new(opts, &players, 0).unwrap();
     assert!(matches!(game.state, GameState::Night { .. }));
 }
 

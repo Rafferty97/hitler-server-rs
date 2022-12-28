@@ -218,7 +218,7 @@ impl Session {
         let names = self.game.player_names();
         let seed = rand::thread_rng().next_u64();
         self.game = Game::Playing {
-            game: GameInner::new(opts, &names, seed),
+            game: GameInner::new(opts, &names, seed)?,
             started_ts: SystemTime::now(),
             archived: false,
         };
