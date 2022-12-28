@@ -1,9 +1,9 @@
 const WebSocket = require('websocket').client
 
-const ACTION_DELAY = 3000 // 3 secs
+const ACTION_DELAY = 2000 // 3 secs
 
 async function main() {
-  const players = ['ALEX', 'BOB', 'CHARLIE', 'DAVID', 'ED', 'FRED', 'GEORGE', 'HARRY', 'IJ']
+  const players = ['ALEX', 'BOB', 'CHARLIE', 'DAVID', 'ED', 'FRED', 'GEORGE']
   const url = process.argv[2] == 'prod' ? 'wss://secrethitler.live/ws' : 'ws://localhost:8888/'
   const gameId = process.argv[3].toUpperCase()
   
@@ -70,13 +70,18 @@ function react(msg, index) {
     return players[choice].id
   }
   if (action.type == 'vote') {
-    return index % 2 === 0
+    return Math.random() < 0.6 // index % 2 === 0
   }
   if (action.type == 'legislative') {
     if (action.canVeto && Math.random() < 0.5) {
       return { type: 'veto' }
     }
     const idx = Math.floor(Math.random() * action.cards.length)
+    // if (action.canVeto && action.cards.indexOf('Liberal') === -1) {
+    //   return { type: 'veto' }
+    // }
+    // let idx = action.cards.indexOf('Fascist')
+    // if (idx == -1) idx = 0
     return { type: 'discard', idx }
   }
   if (action.type == 'nextRound') {

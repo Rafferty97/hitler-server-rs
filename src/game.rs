@@ -634,7 +634,7 @@ impl Game {
             result[index] = player.alive;
         }
 
-        // Chancellor must not be the president
+        // President cannot also be chancellor
         result[president] = false;
 
         // Last chancellor, and sometimes last president are ineligble
