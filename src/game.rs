@@ -123,7 +123,7 @@ enum VetoStatus {
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug)]
-enum WinCondition {
+pub enum WinCondition {
     /// The liberals completed their policy track.
     LiberalPolicyTrack,
     /// The fascists completed their policy track.

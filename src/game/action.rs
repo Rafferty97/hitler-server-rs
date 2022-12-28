@@ -1,12 +1,7 @@
+use super::{party::Party, Game, GameState, WinCondition};
 use crate::game::{
-    eligible::EligiblePlayers,
-    executive_power::ExecutiveAction,
-    player::Role,
-    votes::{MonarchistVotes, Votes},
-    LegislativeSessionTurn, VetoStatus,
+    executive_power::ExecutiveAction, player::Role, LegislativeSessionTurn, VetoStatus,
 };
-
-use super::{party::Party, Game, GameState};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -30,8 +25,9 @@ pub enum PlayerAction {
         can_assassinate: bool,
     },
     EndCongress,
+    EndExecutivePower,
     Dead,
-    // FIXME
+    GameOver(WinCondition),
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
@@ -59,7 +55,7 @@ impl Game {
         let player_idx = player;
         let player = &self.players[player_idx];
 
-        if !player.alive {
+        if !player.alive && !self.game_over() {
             return Some(PlayerAction::Dead);
         }
 
@@ -120,7 +116,7 @@ impl Game {
             } => match turn {
                 LegislativeSessionTurn::President { cards } => (player_idx == *president)
                     .then_some(PlayerAction::PresidentDisard { cards: *cards }),
-                LegislativeSessionTurn::Chancellor { cards, veto } => (player_idx == *president)
+                LegislativeSessionTurn::Chancellor { cards, veto } => (player_idx == *chancellor)
                     .then_some(PlayerAction::ChancellorDiscard {
                         cards: *cards,
                         can_veto: *veto == VetoStatus::CanVeto,
@@ -167,12 +163,24 @@ impl Game {
                 }
             }),
 
-            _ => unimplemented!(), // FIXME
+            CommunistEnd { .. } => None,
+
+            ActionReveal {
+                action,
+                confirmations,
+                ..
+            } => {
+                use ExecutiveAction::*;
+                let government = self.last_government.unwrap();
+                let show_button = match action {
+                    InvestigatePlayer | PolicyPeak => player_idx == government.president,
+                    Bugging | Radicalisation | Congress => !confirmations.has_confirmed(player_idx),
+                    _ => false,
+                };
+                show_button.then_some(PlayerAction::EndExecutivePower)
+            }
+
+            GameOver(outcome) => Some(PlayerAction::GameOver(*outcome)),
         }
     }
 }
-
-// ChoosePlayer {
-// CommunistEnd {
-// ActionReveal {
-// GameOver(WinCondition),
