@@ -5,14 +5,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Serialize, Deserialize, Debug)]
 pub struct Confirmations {
     num_players: usize,
-    state: [bool; 10],
+    state: [bool; MAX_PLAYERS],
 }
 
 impl Confirmations {
     /// Creates a new `Confirmations`,
     /// where `num_players` is the number of confirmations needed to proceed.
     pub fn new(num_players: usize) -> Self {
-        let state = [false; 10];
+        let state = [false; MAX_PLAYERS];
         Self { num_players, state }
     }
 

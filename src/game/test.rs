@@ -5,8 +5,10 @@ use super::player::Player;
 use super::player::Role;
 use super::GameState;
 use super::Party::*;
+use crate::game::deck::Deck;
 use crate::game::government::Government;
 use crate::game::Game;
+use crate::game::GameOptions;
 use crate::game::WinCondition;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -14,19 +16,22 @@ use rand_chacha::ChaCha8Rng;
 #[test]
 fn can_create_game() {
     let players = ["Alex", "Bob", "Charlie", "David", "Ed"].map(|s| s.into());
-    let game = Game::new(&players, 0);
+    let opts = GameOptions::default();
+    let game = Game::new(opts, &players, 0);
     assert!(matches!(game.state, GameState::Night { .. }));
 }
 
 #[test]
 fn liberal_track_victory() {
     let mut game = Game {
+        opts: GameOptions::default(),
         board: super::board::Board {
             num_players: 5,
             liberal_cards: 4,
             fascist_cards: 0,
+            communist_cards: 0,
         },
-        deck: vec![Liberal, Liberal, Liberal, Liberal, Liberal],
+        deck: Deck::new(false),
         election_tracker: 0,
         last_government: None,
         players: vec![
@@ -51,22 +56,21 @@ fn liberal_track_victory() {
     assert!(game.game_over());
     assert!(matches!(
         game.state,
-        GameState::GameOver {
-            winner: Liberal,
-            win_condition: WinCondition::Legislative
-        }
+        GameState::GameOver(WinCondition::LiberalPolicyTrack)
     ));
 }
 
 #[test]
 fn fascist_track_victory() {
     let mut game = Game {
+        opts: GameOptions::default(),
         board: super::board::Board {
             num_players: 5,
             liberal_cards: 0,
             fascist_cards: 5,
+            communist_cards: 0,
         },
-        deck: vec![Liberal, Liberal, Liberal, Liberal, Liberal],
+        deck: Deck::new(false),
         election_tracker: 0,
         last_government: None,
         players: vec![
@@ -91,22 +95,21 @@ fn fascist_track_victory() {
     assert!(game.game_over());
     assert!(matches!(
         game.state,
-        GameState::GameOver {
-            winner: Fascist,
-            win_condition: WinCondition::Legislative
-        }
+        GameState::GameOver(WinCondition::FascistPolicyTrack)
     ));
 }
 
 #[test]
 fn eligible_chancellors_5players() {
     let mut game = Game {
+        opts: GameOptions::default(),
         board: super::board::Board {
             num_players: 5,
             liberal_cards: 0,
             fascist_cards: 0,
+            communist_cards: 0,
         },
-        deck: vec![Liberal, Liberal, Liberal, Liberal, Liberal],
+        deck: Deck::new(false),
         election_tracker: 0,
         last_government: Some(Government {
             president: 0,

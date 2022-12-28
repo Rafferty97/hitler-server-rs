@@ -1,6 +1,8 @@
-use serde::{Deserialize, Serialize};
+use std::iter::repeat;
 
-use super::party::Party;
+use super::{party::Party, GameOptions};
+use rand::prelude::SliceRandom;
+use serde::{Deserialize, Serialize};
 
 /// A game player.
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -16,7 +18,12 @@ pub struct Player {
 pub enum Role {
     Liberal,
     Fascist,
+    Communist,
     Hitler,
+    Monarchist,
+    Anarchist,
+    Capitalist,
+    Centrist,
 }
 
 impl ToString for Role {
@@ -24,7 +31,12 @@ impl ToString for Role {
         match self {
             Role::Liberal => "Liberal",
             Role::Fascist => "Fascist",
+            Role::Communist => "Communist",
             Role::Hitler => "Hitler",
+            Role::Monarchist => "Monarchist",
+            Role::Anarchist => "Anarchist",
+            Role::Capitalist => "Capitalist",
+            Role::Centrist => "Centrist",
         }
         .to_string()
     }
@@ -45,37 +57,101 @@ impl Player {
         match self.role {
             Role::Liberal => Party::Liberal,
             Role::Fascist => Party::Fascist,
+            Role::Communist => Party::Communist,
             Role::Hitler => Party::Fascist,
+            Role::Monarchist => Party::Fascist,
+            Role::Anarchist => Party::Communist,
+            Role::Capitalist => Party::Liberal,
+            Role::Centrist => Party::Liberal,
         }
     }
 }
 
-pub struct RoleAssigner {
-    /// The indices of the fascist players; the first fascist is always hitler
-    fascists: [usize; 4],
-}
+pub fn assign_roles(num_players: usize, opts: &GameOptions, rng: &mut impl rand::Rng) -> Vec<Role> {
+    let mut roles = vec![];
 
-impl RoleAssigner {
-    pub fn new(num_players: usize, rng: &mut impl rand::Rng) -> Self {
-        let num_fascists = (num_players - 1) / 2;
-        let mut fascists = [usize::MAX; 4];
-        for i in 0..num_fascists {
-            loop {
-                let index = rng.gen_range(0..num_players);
-                if fascists.iter().take(i).all(|i| *i != index) {
-                    fascists[i] = index;
-                    break;
-                }
-            }
-        }
-        Self { fascists }
+    // Determine the total number of fascists and communists to include
+    let mut fascists = match (opts.communists, num_players) {
+        (false, 5..=6) => 2,
+        (false, 7..=8) => 3,
+        (false, 9..=10) => 4,
+        (true, 6..=7) => 2,
+        (true, 8..=10) => 3,
+        (true, 11..=14) => 4,
+        (true, 15..=16) => 5,
+        _ => panic!("Invalid number of players"),
+    };
+
+    let mut communists = match (opts.communists, num_players) {
+        (false, _) => 0,
+        (true, 6..=8) => 1,
+        (true, 9..=12) => 2,
+        (true, 13..=15) => 3,
+        (true, 16) => 4,
+        _ => panic!("Invalid number of players"),
+    };
+
+    // Add the fascist players
+    roles.push(Role::Hitler);
+    fascists -= 1;
+
+    if opts.monarchist {
+        roles.push(Role::Monarchist);
+        fascists -= 1;
     }
 
-    pub fn get(&self, index: usize) -> Role {
-        match self.fascists.iter().position(|i| *i == index) {
-            Some(0) => Role::Hitler,
-            Some(_) => Role::Fascist,
-            None => Role::Liberal,
-        }
+    roles.extend(repeat(Role::Fascist).take(fascists));
+
+    // Add the communist players
+    if opts.anarchist {
+        roles.push(Role::Anarchist);
+        communists -= 1;
+    }
+
+    roles.extend(repeat(Role::Communist).take(communists));
+
+    // Add the liberal players
+    if opts.capitalist {
+        roles.push(Role::Capitalist);
+    }
+
+    if opts.centrists {
+        roles.push(Role::Centrist);
+        roles.push(Role::Centrist);
+    }
+
+    let liberals = num_players - roles.len();
+    roles.extend(repeat(Role::Liberal).take(liberals));
+
+    // Shuffle the roles and return
+    roles.shuffle(rng);
+    roles
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::game::player::Role;
+    use crate::game::GameOptions;
+
+    #[test]
+    fn role_assignment_10players() {
+        // 2+H, 5, 2
+        let opts = GameOptions {
+            communists: true,
+            anarchist: true,
+            capitalist: true,
+            centrists: true,
+            monarchist: false,
+        };
+        let roles = assign_roles(10, &opts, &mut rand::thread_rng());
+        assert_eq!(roles.iter().filter(|r| **r == Role::Hitler).count(), 1);
+        assert_eq!(roles.iter().filter(|r| **r == Role::Monarchist).count(), 0);
+        assert_eq!(roles.iter().filter(|r| **r == Role::Fascist).count(), 2);
+        assert_eq!(roles.iter().filter(|r| **r == Role::Capitalist).count(), 1);
+        assert_eq!(roles.iter().filter(|r| **r == Role::Centrist).count(), 2);
+        assert_eq!(roles.iter().filter(|r| **r == Role::Liberal).count(), 2);
+        assert_eq!(roles.iter().filter(|r| **r == Role::Anarchist).count(), 1);
+        assert_eq!(roles.iter().filter(|r| **r == Role::Communist).count(), 1);
     }
 }

@@ -1,3 +1,4 @@
+use crate::game::GameOptions;
 use crate::time::iso8601;
 use crate::{error::GameError, game::Game as GameInner};
 use dashmap::{mapref::entry::Entry, DashMap};
@@ -210,11 +211,14 @@ impl Session {
             return Err(GameError::InvalidAction);
         }
 
+        // FIXME
+        let opts = GameOptions::default();
+
         self.archive().ok();
         let names = self.game.player_names();
         let seed = rand::thread_rng().next_u64();
         self.game = Game::Playing {
-            game: GameInner::new(&names, seed),
+            game: GameInner::new(opts, &names, seed),
             started_ts: SystemTime::now(),
             archived: false,
         };
