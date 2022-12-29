@@ -11,6 +11,8 @@ pub enum GameError {
     TooManyPlayers,
     #[error("no player exists with the given name")]
     PlayerNotFound,
+    #[error("cannot join a game in progress")]
+    CannotJoinStartedGame,
     #[error("this player cannot be chosen for this action")]
     InvalidPlayerChoice,
     #[error("invalid player index")]

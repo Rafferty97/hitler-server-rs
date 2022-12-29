@@ -1,10 +1,8 @@
-use std::iter::repeat;
-
+use super::{party::Party, GameOptions, MAX_PLAYERS};
 use crate::error::GameError;
-
-use super::{party::Party, GameOptions};
 use rand::prelude::SliceRandom;
 use serde::{Deserialize, Serialize};
+use std::iter::repeat;
 
 /// A game player.
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -14,6 +12,7 @@ pub struct Player {
     pub alive: bool,
     pub not_hitler: bool,
     pub investigated: bool,
+    pub others: [InvestigationResult; MAX_PLAYERS],
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -26,6 +25,13 @@ pub enum Role {
     Anarchist,
     Capitalist,
     Centrist,
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub enum InvestigationResult {
+    Unknown,
+    Party(Party),
+    Role(Role),
 }
 
 impl ToString for Role {
@@ -49,6 +55,7 @@ impl Player {
         Self {
             name,
             role,
+            others: [InvestigationResult::Unknown; MAX_PLAYERS],
             alive: true,
             not_hitler: false,
             investigated: false,

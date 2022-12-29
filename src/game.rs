@@ -5,12 +5,16 @@ use self::executive_power::ExecutiveAction;
 pub use self::options::GameOptions;
 use self::party::Party;
 use self::player::{assign_roles, Player, Role};
+pub use self::update::*;
 use self::votes::{MonarchistVotes, Votes};
 use self::{confirmations::Confirmations, government::Government};
 use crate::error::GameError;
+use crate::game::adjacent::players_are_adjacent;
+use crate::game::player::InvestigationResult;
 use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 
+mod adjacent;
 mod board;
 mod confirmations;
 mod deck;
@@ -20,8 +24,8 @@ mod government;
 mod options;
 mod party;
 mod player;
-mod prompt;
 mod test;
+mod update;
 mod votes;
 
 pub const MAX_PLAYERS: usize = 16;
@@ -159,11 +163,14 @@ impl Game {
         // Generate the players and their roles
         let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
         let roles = assign_roles(num_players, &opts, &mut rng)?;
-        let players = player_names
+        let mut players = player_names
             .iter()
             .zip(roles)
             .map(|(name, role)| Player::new(name.into(), role))
             .collect::<Vec<_>>();
+
+        // Reveal certain player roles/parties to other players
+        Self::reveal_roles(&mut players);
 
         // Create the board; shuffle the deck
         let board = Board::new(num_players);
@@ -186,6 +193,27 @@ impl Game {
             assassinated: false,
             rng,
         })
+    }
+
+    fn reveal_roles(players: &mut [Player]) {
+        use Role::*;
+        let fascists = players.iter().filter(|p| p.role == Fascist).count();
+
+        for i in 0..players.len() {
+            for j in 0..players.len() {
+                let (p1, p2) = (&players[i], &players[j]);
+                let adjacent = players_are_adjacent(i, j, players.len());
+                let result = match (p1.role, p2.role) {
+                    (Fascist, Fascist | Hitler | Monarchist) => InvestigationResult::Role(p2.role),
+                    (Hitler, Fascist) if fascists < 2 => InvestigationResult::Role(p2.role),
+                    (Communist, Communist | Anarchist) => InvestigationResult::Role(p2.role),
+                    (Centrist, Centrist) => InvestigationResult::Role(p2.role),
+                    (Capitalist, _) if adjacent => InvestigationResult::Party(p2.party()),
+                    _ => InvestigationResult::Unknown,
+                };
+                players[i].others[j] = result;
+            }
+        }
     }
 
     /// Gets the player names.
@@ -522,7 +550,16 @@ impl Game {
 
     /// Returns true if the game is over.
     pub fn game_over(&self) -> bool {
-        matches!(self.state, GameState::GameOver { .. })
+        matches!(self.state, GameState::GameOver(_))
+    }
+
+    /// Returns the game outcome.
+    pub fn outcome(&self) -> Option<WinCondition> {
+        if let GameState::GameOver(outcome) = &self.state {
+            Some(*outcome)
+        } else {
+            None
+        }
     }
 
     /// Returns whether a particular player has won.

@@ -1,20 +1,30 @@
 use crate::{
     error::GameError,
     game::{Game as GameInner, GameOptions},
-    session::{SessionHandle, SessionManager},
+    session::{GameUpdate, SessionHandle, SessionManager},
 };
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use tokio::sync::watch;
 
-/// A single game client, which could be a board or a player.
+/// A single game client, which could for a board or a player.
 pub struct Client<'a> {
     manager: &'a SessionManager,
     session: Option<SessionHandle>,
-    player: Option<usize>,
-    state: Option<watch::Receiver<Value>>,
+    player: Option<String>,
+    game_id: Option<String>,
+    updates: Option<watch::Receiver<GameUpdate>>,
+}
+
+/// An action performed by the board.
+#[derive(Serialize, Deserialize)]
+pub enum BoardAction {
+    EndVoting,
+    // FIXME
 }
 
 /// An action performed by the player.
+#[derive(Serialize, Deserialize)]
 pub enum PlayerAction {
     EndNightRound,
     EndCardReveal,
@@ -34,8 +44,9 @@ impl<'a> Client<'a> {
         Self {
             manager,
             session: None,
+            game_id: None,
             player: None,
-            state: None,
+            updates: None,
         }
     }
 
@@ -49,9 +60,10 @@ impl<'a> Client<'a> {
     /// Joins a game as a board.
     pub fn join_as_board(&mut self, game_id: &str) -> Result<(), GameError> {
         let session = self.manager.find_game(game_id)?;
-        self.state = Some(session.lock().unwrap().join_board());
-        self.session = Some(session);
         self.player = None;
+        self.game_id = Some(game_id.to_string());
+        self.updates = Some(session.lock().unwrap().subscribe());
+        self.session = Some(session);
         Ok(())
     }
 
@@ -60,9 +72,10 @@ impl<'a> Client<'a> {
         let session = self.manager.find_game(game_id)?;
         {
             let mut session = session.lock().unwrap();
-            let player = session.get_or_insert_player(name)?;
-            self.state = Some(session.join_player(player));
-            self.player = Some(player);
+            session.add_player(name)?;
+            self.player = Some(name.to_string());
+            self.game_id = Some(game_id.to_string());
+            self.updates = Some(session.subscribe());
         }
         self.session = Some(session);
         Ok(())
@@ -70,9 +83,24 @@ impl<'a> Client<'a> {
 
     /// Waits until there is an update to the game state, then returns the latest state.
     pub async fn next_state(&mut self) -> Value {
-        if let Some(state) = &mut self.state {
-            state.changed().await.ok();
-            state.borrow().clone()
+        if let Some(updates) = &mut self.updates {
+            updates.changed().await.ok();
+            let update = updates.borrow();
+            if let Some(name) = &self.player {
+                json!({
+                    "game_id": self.game_id,
+                    "players": update.players,
+                    "mode": "player",
+                    "state": update.player_updates.iter().find(|u| &u.name == name),
+                })
+            } else {
+                json!({
+                    "game_id": self.game_id,
+                    "players": update.players,
+                    "mode": "board",
+                    "state": update.board_update,
+                })
+            }
         } else {
             std::future::pending().await
         }
@@ -87,16 +115,16 @@ impl<'a> Client<'a> {
         session.start_game()
     }
 
-    /// Called when the board is ready to move on.
-    pub fn board_next(&self, state: &str) -> Result<(), GameError> {
+    /// Called when the board performs an action.
+    pub fn board_action(&self, action: BoardAction) -> Result<(), GameError> {
         if self.player.is_some() {
             return Err(GameError::InvalidAction);
         }
-        self.mutate_game(|game| match state {
-            "election" => game.end_voting(),
-            "cardReveal" => game.end_card_reveal(None),
-            "executiveAction" => game.end_executive_action(None),
-            "legislativeSession" => game.end_legislative_session(),
+        self.mutate_game(|game| match action {
+            BoardAction::EndVoting => game.end_voting(),
+            // "cardReveal" => game.end_card_reveal(None),
+            // "executiveAction" => game.end_executive_action(None),
+            // "legislativeSession" => game.end_legislative_session(),
             // FIXME
             _ => Err(GameError::InvalidAction),
         })
@@ -104,21 +132,24 @@ impl<'a> Client<'a> {
 
     /// Called when a player performs an action.
     pub fn player_action(&self, action: PlayerAction) -> Result<(), GameError> {
-        let player = self.player.ok_or(GameError::InvalidAction)?;
-        self.mutate_game(|game| match &action {
-            PlayerAction::EndNightRound => game.end_night_round(player),
-            PlayerAction::EndCardReveal => game.end_card_reveal(Some(player)),
-            PlayerAction::EndExecutiveAction => game.end_executive_action(Some(player)),
-            PlayerAction::CastVote { vote } => game.cast_vote(player, *vote),
-            PlayerAction::ChoosePlayer { name } => {
-                let other = game.find_player(name)?;
-                game.choose_player(player, other)
+        let player = self.player.as_ref().ok_or(GameError::InvalidAction)?;
+        self.mutate_game(|game| {
+            let player = game.find_player(&player)?;
+            match &action {
+                PlayerAction::EndNightRound => game.end_night_round(player),
+                PlayerAction::EndCardReveal => game.end_card_reveal(Some(player)),
+                PlayerAction::EndExecutiveAction => game.end_executive_action(Some(player)),
+                PlayerAction::CastVote { vote } => game.cast_vote(player, *vote),
+                PlayerAction::ChoosePlayer { name } => {
+                    let other = game.find_player(name)?;
+                    game.choose_player(player, other)
+                }
+                PlayerAction::Discard { index } => game.discard_policy(player, *index),
+                PlayerAction::VetoAgenda => game.veto_agenda(player),
+                PlayerAction::AcceptVeto => game.veto_agenda(player),
+                PlayerAction::RejectVeto => game.reject_veto(player),
+                // FIXME
             }
-            PlayerAction::Discard { index } => game.discard_policy(player, *index),
-            PlayerAction::VetoAgenda => game.veto_agenda(player),
-            PlayerAction::AcceptVeto => game.veto_agenda(player),
-            PlayerAction::RejectVeto => game.reject_veto(player),
-            // FIXME
         })
     }
 

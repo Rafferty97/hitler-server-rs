@@ -1,4 +1,4 @@
-use crate::game::GameOptions;
+use crate::game::{BoardUpdate, GameOptions, PlayerUpdate, PublicPlayer};
 use crate::time::iso8601;
 use crate::{error::GameError, game::Game as GameInner};
 use dashmap::{mapref::entry::Entry, DashMap};
@@ -30,10 +30,8 @@ pub struct Session {
     id: String,
     /// The game itself.
     game: Game,
-    /// Channel for sending game state updates to boards.
-    board_state: watch::Sender<Value>,
-    /// Channels for sending game state updates to players.
-    player_states: Vec<watch::Sender<Value>>,
+    /// Channel for sending game state updates.
+    updates: watch::Sender<GameUpdate>,
     /// The databases.
     dbs: Dbs,
     /// Timestamp of the last time this session was interacted with.
@@ -57,7 +55,15 @@ enum Game {
         /// Whether this game has been archived.
         archived: bool,
     },
-    Over,
+    GameOver,
+}
+
+#[derive(Default, Clone, Serialize, Deserialize, Debug)]
+pub struct GameUpdate {
+    pub players: Vec<PublicPlayer>,
+    pub board_update: Option<BoardUpdate>,
+    pub player_updates: Vec<PlayerUpdate>,
+    pub ended: bool,
 }
 
 impl SessionManager {
@@ -163,8 +169,7 @@ impl Session {
         Self {
             id,
             game,
-            board_state: watch::channel(Value::Null).0,
-            player_states,
+            updates: watch::channel(GameUpdate::default()).0,
             dbs,
             last_ts: Instant::now(),
         }
@@ -175,36 +180,31 @@ impl Session {
         &self.id
     }
 
-    /// Gets the index of the player with the given name,
-    /// adding the player to the game if no player with that name has joined yet.
-    pub fn get_or_insert_player(&mut self, name: &str) -> Result<usize, GameError> {
+    /// Adds the player to the game if there are not already a member,
+    /// unless the game is unable to accept any new players.
+    pub fn add_player(&mut self, name: &str) -> Result<(), GameError> {
         match &mut self.game {
             Game::Lobby { options, players } => {
-                if let Some(idx) = players.iter().position(|n| n == name) {
-                    return Ok(idx);
+                if players.iter().find(|n| *n == name).is_some() {
+                    return Ok(());
                 }
                 if players.len() == options.max_players() {
                     return Err(GameError::TooManyPlayers);
                 }
-                self.player_states.push(watch::channel(Value::Null).0);
                 players.push(name.to_string());
-                Ok(players.len() - 1)
+                Ok(())
             }
-            Game::Playing { game, .. } => game.find_player(name),
-            Game::Over => Err(GameError::GameNotFound),
+            Game::Playing { game, .. } => match game.find_player(name) {
+                Ok(_) => Ok(()),
+                Err(_) => Err(GameError::CannotJoinStartedGame),
+            },
+            Game::GameOver => Err(GameError::GameNotFound),
         }
     }
 
-    /// Called by a new game board client, and returns a stream of updates for the game board.
-    pub fn join_board(&mut self) -> watch::Receiver<Value> {
-        let rx = self.board_state.subscribe();
-        self.notify();
-        rx
-    }
-
-    /// Called by a new player client, and returns a stream of updates for that player.
-    pub fn join_player(&mut self, player: usize) -> watch::Receiver<Value> {
-        let rx = self.player_states[player].subscribe();
+    /// Called by a new client to subscribe to game state updates.
+    pub fn subscribe(&mut self) -> watch::Receiver<GameUpdate> {
+        let rx = self.updates.subscribe();
         self.notify();
         rx
     }
@@ -263,7 +263,7 @@ impl Session {
         }
 
         self.archive().ok();
-        self.game = Game::Over;
+        self.game = Game::GameOver;
         self.notify();
         self.persist_game().ok();
 
@@ -273,29 +273,48 @@ impl Session {
     /// Notifies all connected clients of the new game state.
     fn notify(&mut self) {
         match &self.game {
-            Game::Lobby { players, .. } => {
-                let state = GameInner::get_lobby_board_json(players);
-                self.board_state.send_replace(state);
-                for (idx, player_state) in self.player_states.iter().enumerate() {
-                    let state = GameInner::get_lobby_player_json(players, idx);
-                    player_state.send_replace(state);
-                }
-            }
-            Game::Playing { game, .. } => {
-                self.board_state.send_replace(game.get_board_json());
-                for (idx, player_state) in self.player_states.iter().enumerate() {
-                    let state = game.get_player_json(idx);
-                    player_state.send_replace(state);
-                }
-            }
-            Game::Over => {
-                self.board_state.send_replace(json!({ "type": "gameover" }));
-                for player_state in self.player_states.iter() {
-                    player_state.send_replace(json!({ "type": "gameover" }));
-                }
-            }
-        }
+            Game::Lobby { players, .. } => self.updates.send_replace(Self::lobby_update(players)),
+            Game::Playing { game, .. } => self.updates.send_replace(Self::game_update(game)),
+            Game::GameOver => self.updates.send_replace(Self::game_over_update()),
+        };
         self.last_ts = Instant::now();
+    }
+
+    /// Creates a lobby game update.
+    fn lobby_update(players: &[String]) -> GameUpdate {
+        let make_player = |name: &String| PublicPlayer {
+            name: name.clone(),
+            alive: true,
+            not_hitler: false,
+        };
+        GameUpdate {
+            players: players.iter().map(make_player).collect(),
+            board_update: None,
+            player_updates: vec![],
+            ended: false,
+        }
+    }
+
+    /// Create a game update.
+    fn game_update(game: &GameInner) -> GameUpdate {
+        GameUpdate {
+            players: game.get_public_players(),
+            board_update: Some(game.get_board_update()),
+            player_updates: (0..game.num_players())
+                .map(|i| game.get_player_update(i))
+                .collect(),
+            ended: false,
+        }
+    }
+
+    /// Creates a game over update.
+    fn game_over_update() -> GameUpdate {
+        GameUpdate {
+            players: vec![],
+            board_update: None,
+            player_updates: vec![],
+            ended: true,
+        }
     }
 
     /// Persists the game state to disk, so it can be recovered upon server restart.
@@ -319,7 +338,7 @@ impl Session {
                 "players": game.player_names().collect::<Value>(),
                 "started": iso8601(*started_ts),
                 "finished": iso8601(SystemTime::now()),
-                "outcome": game.get_outcome_json()
+                "outcome": game.outcome()
             })
             .to_string();
             self.dbs.archive.insert(key, data.as_bytes())?;
@@ -334,7 +353,7 @@ impl Game {
         match self {
             Game::Lobby { players, .. } => players.len(),
             Game::Playing { game, .. } => game.num_players(),
-            Game::Over => 0,
+            Game::GameOver => 0,
         }
     }
 
@@ -342,7 +361,7 @@ impl Game {
         match self {
             Game::Lobby { players, .. } => players.clone(),
             Game::Playing { game, .. } => game.player_names().map(|s| s.to_string()).collect(),
-            Game::Over => vec![],
+            Game::GameOver => vec![],
         }
     }
 
@@ -350,7 +369,7 @@ impl Game {
         match self {
             Game::Lobby { .. } => None,
             Game::Playing { game, .. } => Some(game),
-            Game::Over => None,
+            Game::GameOver => None,
         }
     }
 
@@ -358,7 +377,7 @@ impl Game {
         match self {
             Game::Lobby { .. } => true,
             Game::Playing { game, .. } => game.game_over(),
-            Game::Over => false,
+            Game::GameOver => false,
         }
     }
 
@@ -366,7 +385,7 @@ impl Game {
         match self {
             Game::Lobby { .. } => false,
             Game::Playing { game, .. } => game.game_over(),
-            Game::Over => false,
+            Game::GameOver => false,
         }
     }
 }
