@@ -11,17 +11,16 @@ use crate::error::GameError;
 use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Serialize};
 
-mod action;
 mod board;
 mod confirmations;
 mod deck;
 mod eligible;
 mod executive_power;
 mod government;
-mod json;
 mod options;
 mod party;
 mod player;
+mod prompt;
 mod test;
 mod votes;
 

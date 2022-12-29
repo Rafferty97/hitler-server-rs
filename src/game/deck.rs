@@ -28,7 +28,7 @@ impl Deck {
         } else {
             Self {
                 liberal: 6,
-                fascist: 13,
+                fascist: 14,
                 communist: 8,
                 deck: vec![],
             }
