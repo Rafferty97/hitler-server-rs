@@ -35,6 +35,7 @@ pub struct PublicPlayer {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(tag = "type")]
 pub enum BoardPrompt {
     Night,
     Election {
@@ -86,6 +87,7 @@ pub enum BoardPrompt {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(tag = "type")]
 pub enum PlayerPrompt {
     Lobby {
         can_start: bool,
@@ -109,6 +111,13 @@ pub enum PlayerPrompt {
         can_assassinate: bool,
     },
     EndCongress,
+    InvestigatePlayer {
+        name: String,
+        party: Party,
+    },
+    PolicyPeak {
+        cards: [Party; 3],
+    },
     EndExecutivePower,
     Dead,
     GameOver(WinCondition),
@@ -197,8 +206,8 @@ impl Game {
             Election {
                 president,
                 chancellor,
-                eligible_chancellors,
                 votes,
+                ..
             } => Some(BoardPrompt::Election {
                 president: *president,
                 chancellor: *chancellor,
@@ -212,8 +221,8 @@ impl Game {
                 confirmed,
                 monarchist_chancellor,
                 president_chancellor,
-                eligible_chancellors,
                 votes,
+                ..
             } => {
                 if !confirmed {
                     Some(BoardPrompt::SpecialElection {
@@ -463,16 +472,29 @@ impl Game {
             ActionReveal {
                 action,
                 confirmations,
-                ..
+                chosen_player,
             } => {
                 use ExecutiveAction::*;
                 let government = self.last_government.unwrap();
-                let show_button = match action {
-                    InvestigatePlayer | PolicyPeak => player_idx == government.president,
-                    Bugging | Radicalisation | Congress => !confirmations.has_confirmed(player_idx),
-                    _ => false,
-                };
-                show_button.then_some(PlayerPrompt::EndExecutivePower)
+                match action {
+                    InvestigatePlayer if player_idx == government.president => {
+                        let player = &self.players[chosen_player.unwrap()];
+                        Some(PlayerPrompt::InvestigatePlayer {
+                            name: player.name.clone(),
+                            party: player.party(),
+                        })
+                    }
+                    PolicyPeak if player_idx == government.president => {
+                        Some(PlayerPrompt::PolicyPeak {
+                            cards: self.deck.peek_three(),
+                        })
+                    }
+                    Bugging | Radicalisation | Congress => {
+                        let waiting = !confirmations.has_confirmed(player_idx);
+                        waiting.then_some(PlayerPrompt::EndExecutivePower)
+                    }
+                    _ => None,
+                }
             }
 
             GameOver(outcome) => Some(PlayerPrompt::GameOver(*outcome)),

@@ -87,7 +87,7 @@ impl Deck {
     }
 
     /// Peeks at the top three cards in the draw pile.
-    pub fn peek_three(&self) -> &[Party] {
-        &self.deck[self.deck.len() - 3..]
+    pub fn peek_three(&self) -> [Party; 3] {
+        self.deck[self.deck.len() - 3..].try_into().unwrap()
     }
 }

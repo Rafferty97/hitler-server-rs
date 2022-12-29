@@ -204,6 +204,7 @@ impl Game {
                 let (p1, p2) = (&players[i], &players[j]);
                 let adjacent = players_are_adjacent(i, j, players.len());
                 let result = match (p1.role, p2.role) {
+                    _ if i == j => InvestigationResult::Role(p2.role),
                     (Fascist, Fascist | Hitler | Monarchist) => InvestigationResult::Role(p2.role),
                     (Hitler, Fascist) if fascists < 2 => InvestigationResult::Role(p2.role),
                     (Communist, Communist | Anarchist) => InvestigationResult::Role(p2.role),
@@ -670,14 +671,6 @@ impl Game {
     /// Gets the number of players in the game that are alive.
     pub fn num_players_alive(&self) -> usize {
         self.players.iter().filter(|p| p.alive).count()
-    }
-
-    /// Gets the number of ordinary fascists in the game.
-    pub fn num_ordinary_fascists(&self) -> usize {
-        self.players
-            .iter()
-            .filter(|p| p.role == Role::Fascist)
-            .count()
     }
 
     /// Returns `Ok` if the given player index is valid, and an `Err` otherwise.

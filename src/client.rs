@@ -25,6 +25,7 @@ pub enum BoardAction {
 
 /// An action performed by the player.
 #[derive(Serialize, Deserialize)]
+#[serde(tag = "type")]
 pub enum PlayerAction {
     EndNightRound,
     EndCardReveal,

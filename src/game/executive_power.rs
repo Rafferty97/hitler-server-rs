@@ -1,10 +1,7 @@
 use super::{player::Role, votes::MonarchistVotes, Game, GameState};
 use crate::{
     error::GameError,
-    game::{
-        confirmations::Confirmations, eligible::EligiblePlayers, government::Government,
-        WinCondition,
-    },
+    game::{confirmations::Confirmations, eligible::EligiblePlayers, government::Government},
 };
 use serde::{Deserialize, Serialize};
 
