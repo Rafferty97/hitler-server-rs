@@ -1,7 +1,7 @@
 use crate::{
     error::GameError,
     game::{Game as GameInner, GameOptions},
-    session::{GameUpdate, SessionHandle, SessionManager},
+    session::{GameLifecycle, GameUpdate, SessionHandle, SessionManager},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -83,27 +83,37 @@ impl<'a> Client<'a> {
 
     /// Waits until there is an update to the game state, then returns the latest state.
     pub async fn next_state(&mut self) -> Value {
-        if let Some(updates) = &mut self.updates {
-            updates.changed().await.ok();
-            let update = updates.borrow();
-            if let Some(name) = &self.player {
-                json!({
-                    "game_id": self.game_id,
-                    "players": update.players,
-                    "mode": "player",
-                    "state": update.player_updates.iter().find(|u| &u.name == name),
-                })
-            } else {
-                json!({
-                    "game_id": self.game_id,
-                    "players": update.players,
-                    "mode": "board",
-                    "state": update.board_update,
-                })
+        let Some(updates) = &mut self.updates else {
+            return std::future::pending().await;
+        };
+
+        updates.changed().await.ok();
+        let update = updates.borrow();
+
+        let state = match update.lifecycle {
+            GameLifecycle::Lobby { can_start } => {
+                json!({ "type": "lobby", "can_start": can_start })
             }
-        } else {
-            std::future::pending().await
-        }
+            GameLifecycle::Playing => {
+                if let Some(name) = &self.player {
+                    let mut state = json!(update.player_updates.iter().find(|u| &u.name == name));
+                    state["type"] = "player".into();
+                    state
+                } else {
+                    let mut state = json!(update.board_update);
+                    state["type"] = "board".into();
+                    state
+                }
+            }
+            GameLifecycle::Ended => json!({ "type": "ended" }),
+        };
+
+        json!({
+            "game_id": self.game_id,
+            "name": self.player,
+            "players": update.players,
+            "state": state
+        })
     }
 
     /// Starts a new game of Secret Hitler.
@@ -134,7 +144,7 @@ impl<'a> Client<'a> {
     pub fn player_action(&self, action: PlayerAction) -> Result<(), GameError> {
         let player = self.player.as_ref().ok_or(GameError::InvalidAction)?;
         self.mutate_game(|game| {
-            let player = game.find_player(&player)?;
+            let player = game.find_player(player)?;
             match &action {
                 PlayerAction::EndNightRound => game.end_night_round(player),
                 PlayerAction::EndCardReveal => game.end_card_reveal(Some(player)),

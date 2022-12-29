@@ -60,10 +60,17 @@ enum Game {
 
 #[derive(Default, Clone, Serialize, Deserialize, Debug)]
 pub struct GameUpdate {
+    pub lifecycle: GameLifecycle,
     pub players: Vec<PublicPlayer>,
     pub board_update: Option<BoardUpdate>,
     pub player_updates: Vec<PlayerUpdate>,
-    pub ended: bool,
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize, Debug)]
+pub enum GameLifecycle {
+    Lobby { can_start: bool },
+    Playing,
+    Ended,
 }
 
 impl SessionManager {
@@ -185,7 +192,7 @@ impl Session {
     pub fn add_player(&mut self, name: &str) -> Result<(), GameError> {
         match &mut self.game {
             Game::Lobby { options, players } => {
-                if players.iter().find(|n| *n == name).is_some() {
+                if players.iter().any(|n| *n == name) {
                     return Ok(());
                 }
                 if players.len() == options.max_players() {
@@ -272,48 +279,50 @@ impl Session {
 
     /// Notifies all connected clients of the new game state.
     fn notify(&mut self) {
-        match &self.game {
-            Game::Lobby { players, .. } => self.updates.send_replace(Self::lobby_update(players)),
-            Game::Playing { game, .. } => self.updates.send_replace(Self::game_update(game)),
-            Game::GameOver => self.updates.send_replace(Self::game_over_update()),
+        let state = match &self.game {
+            Game::Lobby { players, options } => Self::lobby_update(players, options),
+            Game::Playing { game, .. } => Self::game_update(game),
+            Game::GameOver => Self::game_over_update(),
         };
+        self.updates.send_replace(state);
         self.last_ts = Instant::now();
     }
 
     /// Creates a lobby game update.
-    fn lobby_update(players: &[String]) -> GameUpdate {
+    fn lobby_update(players: &[String], opts: &GameOptions) -> GameUpdate {
         let make_player = |name: &String| PublicPlayer {
             name: name.clone(),
             alive: true,
             not_hitler: false,
         };
+        let can_start = players.len() >= opts.min_players();
         GameUpdate {
+            lifecycle: GameLifecycle::Lobby { can_start },
             players: players.iter().map(make_player).collect(),
             board_update: None,
             player_updates: vec![],
-            ended: false,
         }
     }
 
     /// Create a game update.
     fn game_update(game: &GameInner) -> GameUpdate {
         GameUpdate {
+            lifecycle: GameLifecycle::Playing,
             players: game.get_public_players(),
             board_update: Some(game.get_board_update()),
             player_updates: (0..game.num_players())
                 .map(|i| game.get_player_update(i))
                 .collect(),
-            ended: false,
         }
     }
 
     /// Creates a game over update.
     fn game_over_update() -> GameUpdate {
         GameUpdate {
+            lifecycle: GameLifecycle::Ended,
             players: vec![],
             board_update: None,
             player_updates: vec![],
-            ended: true,
         }
     }
 
@@ -387,5 +396,11 @@ impl Game {
             Game::Playing { game, .. } => game.game_over(),
             Game::GameOver => false,
         }
+    }
+}
+
+impl Default for GameLifecycle {
+    fn default() -> Self {
+        Self::Lobby { can_start: false }
     }
 }
