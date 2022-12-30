@@ -18,8 +18,10 @@ pub struct Client<'a> {
 
 /// An action performed by the board.
 #[derive(Serialize, Deserialize)]
+#[serde(tag = "type")]
 pub enum BoardAction {
     EndVoting,
+    EndCardReveal,
     // FIXME
 }
 
@@ -133,11 +135,10 @@ impl<'a> Client<'a> {
         }
         self.mutate_game(|game| match action {
             BoardAction::EndVoting => game.end_voting(),
-            // "cardReveal" => game.end_card_reveal(None),
+            BoardAction::EndCardReveal => game.end_card_reveal(None),
             // "executiveAction" => game.end_executive_action(None),
             // "legislativeSession" => game.end_legislative_session(),
             // FIXME
-            _ => Err(GameError::InvalidAction),
         })
     }
 

@@ -89,9 +89,6 @@ pub enum BoardPrompt {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(tag = "type")]
 pub enum PlayerPrompt {
-    Lobby {
-        can_start: bool,
-    },
     Night,
     ChoosePlayer {
         kind: ChoosePlayerKind,
@@ -99,7 +96,7 @@ pub enum PlayerPrompt {
     },
     Vote,
     HijackElection,
-    PresidentDisard {
+    PresidentDiscard {
         cards: [Party; 3],
     },
     ChancellorDiscard {
@@ -419,7 +416,7 @@ impl Game {
                 turn,
             } => match turn {
                 LegislativeSessionTurn::President { cards } => (player_idx == *president)
-                    .then_some(PlayerPrompt::PresidentDisard { cards: *cards }),
+                    .then_some(PlayerPrompt::PresidentDiscard { cards: *cards }),
                 LegislativeSessionTurn::Chancellor { cards, veto } => (player_idx == *chancellor)
                     .then_some(PlayerPrompt::ChancellorDiscard {
                         cards: *cards,

@@ -18,20 +18,15 @@ pub struct Deck {
 
 impl Deck {
     pub fn new(communists: bool) -> Self {
-        if communists {
-            Self {
-                liberal: 6,
-                fascist: 11,
-                communist: 0,
-                deck: vec![],
-            }
-        } else {
-            Self {
-                liberal: 6,
-                fascist: 14,
-                communist: 8,
-                deck: vec![],
-            }
+        let (liberal, fascist, communist) = match communists {
+            false => (6, 11, 0),
+            true => (6, 14, 8),
+        };
+        Self {
+            liberal,
+            fascist,
+            communist,
+            deck: vec![],
         }
     }
 
