@@ -593,7 +593,7 @@ impl Game {
 
     /// Called when the anarchist wishes to execute a player.
     pub fn start_assassination(&mut self, player_idx: usize) -> Result<(), GameError> {
-        let GameState::CardReveal { result, .. } = &self.state else {
+        let GameState::CardReveal { .. } = &self.state else {
             return Err(GameError::InvalidAction);
         };
 
@@ -615,7 +615,7 @@ impl Game {
 
     /// Called when the board has finished revealing the assassination.
     pub fn end_assassination(&mut self) -> Result<(), GameError> {
-        let GameState::Assassination { anarchist, chosen_player } = &self.state else {
+        let GameState::Assassination { chosen_player, .. } = &self.state else {
             return Err(GameError::InvalidAction);
         };
         if chosen_player.is_none() {

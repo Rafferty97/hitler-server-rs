@@ -44,6 +44,7 @@ pub enum PlayerAction {
     AcceptVeto,
     RejectVeto,
     StartAssassination,
+    EndCongress,
 }
 
 impl<'a> Client<'a> {
@@ -168,6 +169,7 @@ impl<'a> Client<'a> {
                 PlayerAction::AcceptVeto => game.veto_agenda(player),
                 PlayerAction::RejectVeto => game.reject_veto(player),
                 PlayerAction::StartAssassination => game.start_assassination(player),
+                PlayerAction::EndCongress => game.end_congress(player),
             }
         })
     }

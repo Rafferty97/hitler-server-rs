@@ -1,4 +1,4 @@
-use super::{player::Role, votes::MonarchistVotes, AssassinationState, Game, GameState};
+use super::{player::Role, votes::MonarchistVotes, Game, GameState};
 use crate::{
     error::GameError,
     game::{confirmations::Confirmations, eligible::EligiblePlayers, government::Government},
@@ -213,13 +213,12 @@ impl Game {
                 if let Some(player_idx) = chosen_player {
                     let player = &mut self.players[player_idx];
                     self.radicalised = player.radicalise();
-                    self.state = GameState::ActionReveal {
-                        action,
-                        chosen_player,
-                        confirmations: Confirmations::new(self.num_players_alive()),
-                    };
-                } else {
                 }
+                self.state = GameState::ActionReveal {
+                    action,
+                    chosen_player,
+                    confirmations: Confirmations::new(self.num_players_alive()),
+                };
             }
             _ => unreachable!(),
         }

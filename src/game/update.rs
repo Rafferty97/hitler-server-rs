@@ -121,8 +121,8 @@ pub enum PlayerPrompt {
     PolicyPeak {
         cards: [Party; 3],
     },
-    RadicalisationResult {
-        success: Option<bool>,
+    Radicalisation {
+        result: RadicalisationResult,
     },
     Dead,
     GameOver {
@@ -167,6 +167,20 @@ pub enum CommunistSessionPhase {
     InProgress,
     Leaving,
     Reveal,
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize, Debug)]
+pub enum RadicalisationResult {
+    /// The player is a communist, but no radicalisation was attempted
+    NoAttempt,
+    /// The player is a communist, and the radicalisation failed
+    Fail,
+    /// The player is a communist, and the radicalisation failed
+    Success,
+    /// The player is not a communist, and their role has not changed
+    Unchanged,
+    /// The player was not a communist, but has been radicalised
+    Radicalised,
 }
 
 impl Game {
@@ -509,10 +523,18 @@ impl Game {
                         }
                     }),
                     Radicalisation | Congress => {
-                        let see_result = player.role == Role::Communist && chosen_player.is_some();
-                        Some(PlayerPrompt::RadicalisationResult {
-                            success: see_result.then_some(self.radicalised),
-                        })
+                        let result = if player.role != Role::Communist {
+                            RadicalisationResult::Unchanged
+                        } else if chosen_player.is_none() {
+                            RadicalisationResult::NoAttempt
+                        } else if *chosen_player == Some(player_idx) {
+                            RadicalisationResult::Radicalised
+                        } else if self.radicalised {
+                            RadicalisationResult::Success
+                        } else {
+                            RadicalisationResult::Fail
+                        };
+                        Some(PlayerPrompt::Radicalisation { result })
                     }
                     _ => None,
                 }
