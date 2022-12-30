@@ -1,10 +1,7 @@
 use super::{player::Role, votes::MonarchistVotes, AssassinationState, Game, GameState};
 use crate::{
     error::GameError,
-    game::{
-        confirmations::Confirmations, eligible::EligiblePlayers, government::Government,
-        RadicalisationState,
-    },
+    game::{confirmations::Confirmations, eligible::EligiblePlayers, government::Government},
 };
 use serde::{Deserialize, Serialize};
 
@@ -131,19 +128,17 @@ impl Game {
             return Err(GameError::InvalidAction);
         };
 
-        if action == Congress && self.radicalisation == RadicalisationState::Succeeded {
+        // If radicalisation succeeded, there's no second attempt during congress
+        if action == Congress && self.radicalised {
             self.state = GameState::Congress;
             return Ok(());
         }
 
         let can_select = self.eligible_players().ordinary_communist().make();
 
-        let mut can_be_selected = self.eligible_players().not_communist();
+        let mut can_be_selected = self.eligible_players().can_radicalise();
         if matches!(action, Radicalisation | Congress) {
             can_be_selected = can_be_selected.not_investigated();
-        }
-        if let RadicalisationState::Failed(player) = self.radicalisation {
-            can_be_selected = can_be_selected.exclude(player);
         }
         let can_be_selected = can_be_selected.make();
 
@@ -204,15 +199,30 @@ impl Game {
 
     /// Called when the board has finished leaving a "communist session".
     pub fn end_communist_end(&mut self) -> Result<(), GameError> {
+        use ExecutiveAction::*;
+
         let GameState::CommunistEnd { action, chosen_player } = self.state else {
             return Err(GameError::InvalidAction);
         };
 
-        self.state = GameState::ActionReveal {
-            action,
-            chosen_player,
-            confirmations: Confirmations::new(self.num_players_alive()),
-        };
+        match action {
+            Bugging => {
+                self.start_round(None);
+            }
+            Radicalisation | Congress => {
+                if let Some(player_idx) = chosen_player {
+                    let player = &mut self.players[player_idx];
+                    self.radicalised = player.radicalise();
+                    self.state = GameState::ActionReveal {
+                        action,
+                        chosen_player,
+                        confirmations: Confirmations::new(self.num_players_alive()),
+                    };
+                } else {
+                }
+            }
+            _ => unreachable!(),
+        }
         Ok(())
     }
 
@@ -270,19 +280,14 @@ impl Game {
 
                 self.start_round(None);
             }
-            Radicalisation | Congress => {
-                let Some(player_idx) = chosen_player else {
-                    return Err(GameError::InvalidAction);
+            Bugging => {
+                self.state = GameState::CommunistEnd {
+                    action: *action,
+                    chosen_player: None,
                 };
-                let player = &mut self.players[*player_idx];
-
-                if matches!(player.role, Role::Liberal | Role::Centrist) {
-                    player.role = Role::Communist;
-                    self.radicalisation = RadicalisationState::Succeeded;
-                } else {
-                    self.radicalisation = RadicalisationState::Failed(*player_idx);
-                }
-
+            }
+            FiveYearPlan => {
+                self.deck.five_year_plan(&mut self.rng);
                 self.start_round(None);
             }
             _ => {

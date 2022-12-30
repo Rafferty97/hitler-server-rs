@@ -9,10 +9,11 @@ use std::iter::repeat;
 pub struct Player {
     pub name: String,
     pub role: Role,
+    pub others: [InvestigationResult; MAX_PLAYERS],
     pub alive: bool,
     pub not_hitler: bool,
     pub investigated: bool,
-    pub others: [InvestigationResult; MAX_PLAYERS],
+    pub tried_to_radicalise: bool,
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -59,6 +60,7 @@ impl Player {
             alive: true,
             not_hitler: false,
             investigated: false,
+            tried_to_radicalise: false,
         }
     }
 
@@ -72,6 +74,16 @@ impl Player {
             Role::Anarchist => Party::Communist,
             Role::Capitalist => Party::Liberal,
             Role::Centrist => Party::Liberal,
+        }
+    }
+
+    pub fn radicalise(&mut self) -> bool {
+        self.tried_to_radicalise = true;
+        if matches!(self.role, Role::Liberal | Role::Centrist) {
+            self.role = Role::Communist;
+            true
+        } else {
+            false
         }
     }
 }

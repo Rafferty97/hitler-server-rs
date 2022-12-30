@@ -50,7 +50,7 @@ fn liberal_track_victory() {
             confirmations: Confirmations::new(5),
             board_ready: false,
         },
-        radicalisation: crate::game::RadicalisationState::Unused,
+        radicalised: false,
         assassination: crate::game::AssassinationState::Unused,
     };
 
@@ -91,7 +91,7 @@ fn fascist_track_victory() {
             confirmations: Confirmations::new(5),
             board_ready: false,
         },
-        radicalisation: crate::game::RadicalisationState::Unused,
+        radicalised: false,
         assassination: crate::game::AssassinationState::Unused,
     };
 
@@ -135,7 +135,7 @@ fn eligible_chancellors_5players() {
             confirmations: Confirmations::new(5),
             board_ready: false,
         },
-        radicalisation: crate::game::RadicalisationState::Unused,
+        radicalised: false,
         assassination: crate::game::AssassinationState::Unused,
     };
 

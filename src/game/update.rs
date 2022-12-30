@@ -121,7 +121,9 @@ pub enum PlayerPrompt {
     PolicyPeak {
         cards: [Party; 3],
     },
-    EndExecutivePower,
+    RadicalisationResult {
+        success: Option<bool>,
+    },
     Dead,
     GameOver {
         outcome: WinCondition,
@@ -308,7 +310,7 @@ impl Game {
                     chosen_player: None,
                     party: None,
                 },
-                _ => panic!("Invalid action"),
+                _ => unreachable!(),
             }),
 
             CommunistEnd { action, .. } => Some(BoardPrompt::CommunistSession {
@@ -465,7 +467,7 @@ impl Game {
                     Execution => ChoosePlayerKind::Execute,
                     Radicalisation | Congress => ChoosePlayerKind::Radicalise,
                     Confession => ChoosePlayerKind::Confession,
-                    PolicyPeak | FiveYearPlan => panic!("Invalid action"),
+                    PolicyPeak | FiveYearPlan => unreachable!(),
                 };
                 PlayerPrompt::ChoosePlayer {
                     kind,
@@ -481,23 +483,36 @@ impl Game {
                 chosen_player,
             } => {
                 use ExecutiveAction::*;
+
+                if confirmations.has_confirmed(player_idx) {
+                    return None;
+                }
+
                 let government = self.last_government.unwrap();
                 match action {
-                    InvestigatePlayer if player_idx == government.president => {
+                    InvestigatePlayer => (player_idx == government.president).then(|| {
                         let player = &self.players[chosen_player.unwrap()];
-                        Some(PlayerPrompt::InvestigatePlayer {
+                        PlayerPrompt::InvestigatePlayer {
                             name: player.name.clone(),
                             party: player.party(),
+                        }
+                    }),
+                    PolicyPeak => (player_idx == government.president).then(|| {
+                        let cards = self.deck.peek_three();
+                        PlayerPrompt::PolicyPeak { cards }
+                    }),
+                    Bugging => (player.role == Role::Communist).then(|| {
+                        let player = &self.players[chosen_player.unwrap()];
+                        PlayerPrompt::InvestigatePlayer {
+                            name: player.name.clone(),
+                            party: player.party(),
+                        }
+                    }),
+                    Radicalisation | Congress => {
+                        let see_result = player.role == Role::Communist && chosen_player.is_some();
+                        Some(PlayerPrompt::RadicalisationResult {
+                            success: see_result.then_some(self.radicalised),
                         })
-                    }
-                    PolicyPeak if player_idx == government.president => {
-                        Some(PlayerPrompt::PolicyPeak {
-                            cards: self.deck.peek_three(),
-                        })
-                    }
-                    Bugging | Radicalisation | Congress => {
-                        let waiting = !confirmations.has_confirmed(player_idx);
-                        waiting.then_some(PlayerPrompt::EndExecutivePower)
                     }
                     _ => None,
                 }

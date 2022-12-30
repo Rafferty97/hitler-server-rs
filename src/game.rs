@@ -41,7 +41,7 @@ pub struct Game {
     presidential_turn: usize,
     election_tracker: usize,
     last_government: Option<Government>,
-    radicalisation: RadicalisationState,
+    radicalised: bool,
     assassination: AssassinationState,
     rng: rand_chacha::ChaCha8Rng,
 }
@@ -130,16 +130,9 @@ enum VetoStatus {
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Debug)]
-enum RadicalisationState {
-    Unused,
-    Failed(usize),
-    Succeeded,
-}
-
-#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Debug)]
 enum AssassinationState {
     Unused,
-    Activated(usize),
+    Activated { anarchist: usize },
     Completed,
 }
 
@@ -207,7 +200,7 @@ impl Game {
             presidential_turn: rng.gen_range(0..num_players),
             election_tracker: 0,
             last_government: None,
-            radicalisation: RadicalisationState::Unused,
+            radicalised: false,
             assassination: AssassinationState::Unused,
             rng,
         })
@@ -390,13 +383,20 @@ impl Game {
                             confirmations: Confirmations::new(self.num_players_alive()),
                         };
                     }
-                    Bugging | Radicalisation | Congress => {
+                    Bugging => {
+                        self.state = GameState::ActionReveal {
+                            action,
+                            chosen_player: Some(other),
+                            confirmations: Confirmations::new(self.num_communists_left()),
+                        };
+                    }
+                    Radicalisation | Congress => {
                         self.state = GameState::CommunistEnd {
                             action,
                             chosen_player: Some(other),
                         };
                     }
-                    _ => panic!("Invalid game state"),
+                    _ => unreachable!(),
                 }
                 Ok(())
             }
@@ -607,7 +607,9 @@ impl Game {
             return Err(GameError::InvalidAction);
         }
 
-        self.assassination = AssassinationState::Activated(player_idx);
+        self.assassination = AssassinationState::Activated {
+            anarchist: player_idx,
+        };
         self.end_card_reveal(Some(player_idx))
     }
 
@@ -665,7 +667,7 @@ impl Game {
     }
 
     fn start_round(&mut self, president: Option<usize>) {
-        if let AssassinationState::Activated(anarchist) = self.assassination {
+        if let AssassinationState::Activated { anarchist } = self.assassination {
             self.state = GameState::Assassination {
                 anarchist,
                 chosen_player: None,
@@ -764,6 +766,14 @@ impl Game {
     /// Gets the number of players in the game that are alive.
     pub fn num_players_alive(&self) -> usize {
         self.players.iter().filter(|p| p.alive).count()
+    }
+
+    /// Gets the number of ordinary communists that are alive.
+    pub fn num_communists_left(&self) -> usize {
+        self.players
+            .iter()
+            .filter(|p| p.alive && p.role == Role::Communist)
+            .count()
     }
 
     /// Returns `Ok` if the given player index is valid, and an `Err` otherwise.

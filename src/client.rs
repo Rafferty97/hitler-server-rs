@@ -17,6 +17,7 @@ pub struct Client<'a> {
 }
 
 /// An action performed by the board.
+#[allow(clippy::enum_variant_names)]
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum BoardAction {
@@ -25,6 +26,8 @@ pub enum BoardAction {
     EndExecutiveAction,
     EndLegislativeSession,
     EndAssassination,
+    EndCommunistStart,
+    EndCommunistEnd,
 }
 
 /// An action performed by the player.
@@ -141,6 +144,8 @@ impl<'a> Client<'a> {
             BoardAction::EndExecutiveAction => game.end_executive_action(None),
             BoardAction::EndLegislativeSession => game.end_legislative_session(),
             BoardAction::EndAssassination => game.end_assassination(),
+            BoardAction::EndCommunistStart => game.end_communist_start(),
+            BoardAction::EndCommunistEnd => game.end_communist_end(),
         })
     }
 
