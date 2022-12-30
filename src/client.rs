@@ -22,7 +22,9 @@ pub struct Client<'a> {
 pub enum BoardAction {
     EndVoting,
     EndCardReveal,
-    // FIXME
+    EndExecutiveAction,
+    EndLegislativeSession,
+    EndAssassination,
 }
 
 /// An action performed by the player.
@@ -38,7 +40,7 @@ pub enum PlayerAction {
     VetoAgenda,
     AcceptVeto,
     RejectVeto,
-    // FIXME
+    StartAssassination,
 }
 
 impl<'a> Client<'a> {
@@ -136,9 +138,9 @@ impl<'a> Client<'a> {
         self.mutate_game(|game| match action {
             BoardAction::EndVoting => game.end_voting(),
             BoardAction::EndCardReveal => game.end_card_reveal(None),
-            // "executiveAction" => game.end_executive_action(None),
-            // "legislativeSession" => game.end_legislative_session(),
-            // FIXME
+            BoardAction::EndExecutiveAction => game.end_executive_action(None),
+            BoardAction::EndLegislativeSession => game.end_legislative_session(),
+            BoardAction::EndAssassination => game.end_assassination(),
         })
     }
 
@@ -160,7 +162,7 @@ impl<'a> Client<'a> {
                 PlayerAction::VetoAgenda => game.veto_agenda(player),
                 PlayerAction::AcceptVeto => game.veto_agenda(player),
                 PlayerAction::RejectVeto => game.reject_veto(player),
-                // FIXME
+                PlayerAction::StartAssassination => game.start_assassination(player),
             }
         })
     }

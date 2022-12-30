@@ -1,7 +1,10 @@
-use super::{player::Role, votes::MonarchistVotes, Game, GameState};
+use super::{player::Role, votes::MonarchistVotes, AssassinationState, Game, GameState};
 use crate::{
     error::GameError,
-    game::{confirmations::Confirmations, eligible::EligiblePlayers, government::Government},
+    game::{
+        confirmations::Confirmations, eligible::EligiblePlayers, government::Government,
+        RadicalisationState,
+    },
 };
 use serde::{Deserialize, Serialize};
 
@@ -25,8 +28,6 @@ pub enum ExecutiveAction {
     Congress,
     /// The president or chancellor reveals their party membership.
     Confession,
-    /// The Anarchist is assassinating a player.
-    Assassination,
 }
 
 impl ToString for ExecutiveAction {
@@ -41,7 +42,6 @@ impl ToString for ExecutiveAction {
             ExecutiveAction::FiveYearPlan => "fiveYearPlan",
             ExecutiveAction::Congress => "congress",
             ExecutiveAction::Confession => "confession",
-            ExecutiveAction::Assassination => "assassination",
         }
         .to_string()
     }
@@ -120,33 +120,7 @@ impl Game {
                     can_be_selected: EligiblePlayers::only(&[president, chancellor]),
                 };
             }
-            Assassination => panic!("Invalid action"),
         }
-    }
-
-    /// Called when the anarchist wishes to execute a player.
-    pub fn start_anarchist_assassination(&mut self, player: usize) -> Result<(), GameError> {
-        if !matches!(&self.state, GameState::CardReveal { .. }) {
-            return Err(GameError::InvalidAction);
-        }
-
-        let idx = player;
-        let Some(player) = self.players.get(player) else {
-            return Err(GameError::InvalidAction);
-        };
-        if !player.alive || player.role != Role::Anarchist {
-            return Err(GameError::InvalidAction);
-        }
-        if self.assassinated {
-            return Err(GameError::InvalidAction);
-        }
-
-        self.state = GameState::ChoosePlayer {
-            action: ExecutiveAction::Assassination,
-            can_select: EligiblePlayers::only_one(idx),
-            can_be_selected: self.eligible_players().exclude(idx).make(),
-        };
-        Ok(())
     }
 
     /// Called when the board has finished entering a "communist session".
@@ -157,7 +131,7 @@ impl Game {
             return Err(GameError::InvalidAction);
         };
 
-        if action == Congress && self.radicalised {
+        if action == Congress && self.radicalisation == RadicalisationState::Succeeded {
             self.state = GameState::Congress;
             return Ok(());
         }
@@ -167,6 +141,9 @@ impl Game {
         let mut can_be_selected = self.eligible_players().not_communist();
         if matches!(action, Radicalisation | Congress) {
             can_be_selected = can_be_selected.not_investigated();
+        }
+        if let RadicalisationState::Failed(player) = self.radicalisation {
+            can_be_selected = can_be_selected.exclude(player);
         }
         let can_be_selected = can_be_selected.make();
 
@@ -256,7 +233,7 @@ impl Game {
                 }
             }
             // Only the board may end these actions
-            SpecialElection | Execution | FiveYearPlan | Confession | Assassination => {
+            SpecialElection | Execution | FiveYearPlan | Confession => {
                 if player.is_some() {
                     return Err(GameError::InvalidAction);
                 }
@@ -276,13 +253,13 @@ impl Game {
         match action {
             InvestigatePlayer => {
                 self.players[chosen_player.unwrap()].investigated = true;
-                self.start_election(None);
+                self.start_round(None);
             }
             SpecialElection => {
                 let player = *chosen_player;
-                self.start_election(player);
+                self.start_round(player);
             }
-            Execution | Assassination => {
+            Execution => {
                 let player = &mut self.players[chosen_player.unwrap()];
                 player.alive = false;
                 player.not_hitler = player.role != Role::Hitler;
@@ -291,21 +268,25 @@ impl Game {
                     return Ok(());
                 }
 
-                self.start_election(None);
+                self.start_round(None);
             }
             Radicalisation | Congress => {
-                if let Some(player) = chosen_player {
-                    let player = &mut self.players[*player];
-                    if matches!(player.role, Role::Liberal | Role::Centrist) {
-                        player.role = Role::Communist;
-                        self.radicalised = true;
-                    }
+                let Some(player_idx) = chosen_player else {
+                    return Err(GameError::InvalidAction);
+                };
+                let player = &mut self.players[*player_idx];
+
+                if matches!(player.role, Role::Liberal | Role::Centrist) {
+                    player.role = Role::Communist;
+                    self.radicalisation = RadicalisationState::Succeeded;
+                } else {
+                    self.radicalisation = RadicalisationState::Failed(*player_idx);
                 }
 
-                self.start_election(None);
+                self.start_round(None);
             }
             _ => {
-                self.start_election(None);
+                self.start_round(None);
             }
         }
         Ok(())

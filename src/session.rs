@@ -223,10 +223,8 @@ impl Session {
             return Err(GameError::InvalidAction);
         }
 
-        // FIXME
-        let opts = GameOptions::default();
-
         self.archive().ok();
+        let opts = self.game.options();
         let names = self.game.player_names();
         let seed = rand::thread_rng().next_u64();
         self.game = Game::Playing {
@@ -363,6 +361,14 @@ impl Game {
             Game::Lobby { players, .. } => players.len(),
             Game::Playing { game, .. } => game.num_players(),
             Game::GameOver => 0,
+        }
+    }
+
+    fn options(&self) -> GameOptions {
+        match self {
+            Game::Lobby { options, .. } => *options,
+            Game::Playing { game, .. } => game.options(),
+            Game::GameOver => GameOptions::default(),
         }
     }
 

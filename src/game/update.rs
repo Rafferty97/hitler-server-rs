@@ -3,7 +3,8 @@ use super::{
     WinCondition,
 };
 use crate::game::{
-    executive_power::ExecutiveAction, player::Role, LegislativeSessionTurn, VetoStatus,
+    executive_power::ExecutiveAction, player::Role, AssassinationState, LegislativeSessionTurn,
+    VetoStatus,
 };
 use serde::{Deserialize, Serialize};
 
@@ -71,8 +72,6 @@ pub enum BoardPrompt {
     },
     PolicyPeak,
     Execution {
-        /// If this is an anarchist assassination, this is the anarchist's identity
-        anarchist: Option<usize>,
         chosen_player: Option<usize>,
     },
     CommunistSession {
@@ -83,6 +82,13 @@ pub enum BoardPrompt {
     Confession {
         chosen_player: Option<usize>,
         party: Option<Party>,
+    },
+    Assassination {
+        anarchist: usize,
+        chosen_player: Option<usize>,
+    },
+    GameOver {
+        outcome: WinCondition,
     },
 }
 
@@ -117,7 +123,9 @@ pub enum PlayerPrompt {
     },
     EndExecutivePower,
     Dead,
-    GameOver(WinCondition),
+    GameOver {
+        outcome: WinCondition,
+    },
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug)]
@@ -286,9 +294,7 @@ impl Game {
                     monarchist_passed: true,
                     chosen_player: None,
                 },
-                ExecutiveAction::PolicyPeak => BoardPrompt::PolicyPeak,
                 ExecutiveAction::Execution => BoardPrompt::Execution {
-                    anarchist: None,
                     chosen_player: None,
                 },
                 ExecutiveAction::Bugging
@@ -302,10 +308,7 @@ impl Game {
                     chosen_player: None,
                     party: None,
                 },
-                ExecutiveAction::Assassination => BoardPrompt::Execution {
-                    anarchist: self.players.iter().position(|p| p.role == Role::Anarchist),
-                    chosen_player: None,
-                },
+                _ => panic!("Invalid action"),
             }),
 
             CommunistEnd { action, .. } => Some(BoardPrompt::CommunistSession {
@@ -317,36 +320,40 @@ impl Game {
                 action,
                 chosen_player,
                 ..
-            } => match action {
-                ExecutiveAction::InvestigatePlayer => Some(BoardPrompt::InvestigatePlayer {
+            } => Some(match action {
+                ExecutiveAction::InvestigatePlayer => BoardPrompt::InvestigatePlayer {
                     chosen_player: *chosen_player,
-                }),
-                ExecutiveAction::SpecialElection => Some(BoardPrompt::SpecialElection {
+                },
+                ExecutiveAction::SpecialElection => BoardPrompt::SpecialElection {
                     monarchist_passed: true,
                     chosen_player: *chosen_player,
-                }),
-                ExecutiveAction::Execution => Some(BoardPrompt::Execution {
-                    anarchist: None,
+                },
+                ExecutiveAction::PolicyPeak => BoardPrompt::PolicyPeak,
+                ExecutiveAction::Execution => BoardPrompt::Execution {
                     chosen_player: *chosen_player,
-                }),
+                },
                 ExecutiveAction::Bugging
                 | ExecutiveAction::Radicalisation
-                | ExecutiveAction::Congress => Some(BoardPrompt::CommunistSession {
+                | ExecutiveAction::Congress => BoardPrompt::CommunistSession {
                     action: *action,
                     phase: CommunistSessionPhase::Reveal,
-                }),
-                ExecutiveAction::Confession => Some(BoardPrompt::Confession {
+                },
+                ExecutiveAction::FiveYearPlan => BoardPrompt::FiveYearPlan,
+                ExecutiveAction::Confession => BoardPrompt::Confession {
                     chosen_player: *chosen_player,
                     party: chosen_player.map(|i| self.players[i].party()),
-                }),
-                ExecutiveAction::Assassination => Some(BoardPrompt::Execution {
-                    anarchist: self.players.iter().position(|p| p.role == Role::Anarchist),
-                    chosen_player: *chosen_player,
-                }),
-                _ => None,
-            },
+                },
+            }),
 
-            GameOver(_) => None,
+            Assassination {
+                anarchist,
+                chosen_player,
+            } => Some(BoardPrompt::Assassination {
+                anarchist: *anarchist,
+                chosen_player: *chosen_player,
+            }),
+
+            GameOver(outcome) => Some(BoardPrompt::GameOver { outcome: *outcome }),
         }
     }
 
@@ -432,11 +439,13 @@ impl Game {
                 confirmations,
                 board_ready,
                 ..
-            } => (*board_ready && !confirmations.has_confirmed(player_idx)).then_some(
-                PlayerPrompt::StartElection {
-                    can_assassinate: !self.assassinated && player.role == Role::Anarchist,
-                },
-            ),
+            } => {
+                use AssassinationState::Unused;
+                let unconfirmed = *board_ready && !confirmations.has_confirmed(player_idx);
+                unconfirmed.then_some(PlayerPrompt::StartElection {
+                    can_assassinate: self.assassination == Unused && player.role == Role::Anarchist,
+                })
+            }
 
             CommunistStart { .. } => None,
 
@@ -453,7 +462,7 @@ impl Game {
                 let kind = match action {
                     InvestigatePlayer | Bugging => ChoosePlayerKind::Investigate,
                     SpecialElection => ChoosePlayerKind::NominatePresident,
-                    Execution | Assassination => ChoosePlayerKind::Execute,
+                    Execution => ChoosePlayerKind::Execute,
                     Radicalisation | Congress => ChoosePlayerKind::Radicalise,
                     Confession => ChoosePlayerKind::Confession,
                     PolicyPeak | FiveYearPlan => panic!("Invalid action"),
@@ -494,7 +503,19 @@ impl Game {
                 }
             }
 
-            GameOver(outcome) => Some(PlayerPrompt::GameOver(*outcome)),
+            Assassination { chosen_player, .. } => {
+                let anarchist = player.role == Role::Anarchist && chosen_player.is_none();
+                anarchist.then_some(PlayerPrompt::ChoosePlayer {
+                    kind: ChoosePlayerKind::Execute,
+                    options: self
+                        .eligible_players()
+                        .exclude(player_idx)
+                        .make()
+                        .names(self),
+                })
+            }
+
+            GameOver(outcome) => Some(PlayerPrompt::GameOver { outcome: *outcome }),
         }
     }
 }

@@ -41,8 +41,8 @@ pub struct Game {
     presidential_turn: usize,
     election_tracker: usize,
     last_government: Option<Government>,
-    radicalised: bool,
-    assassinated: bool,
+    radicalisation: RadicalisationState,
+    assassination: AssassinationState,
     rng: rand_chacha::ChaCha8Rng,
 }
 
@@ -103,6 +103,10 @@ enum GameState {
         chosen_player: Option<usize>,
         confirmations: Confirmations,
     },
+    Assassination {
+        anarchist: usize,
+        chosen_player: Option<usize>,
+    },
     GameOver(WinCondition),
 }
 
@@ -123,6 +127,20 @@ enum VetoStatus {
     CannotVeto,
     CanVeto,
     VetoDenied,
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Debug)]
+enum RadicalisationState {
+    Unused,
+    Failed(usize),
+    Succeeded,
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Debug)]
+enum AssassinationState {
+    Unused,
+    Activated(usize),
+    Completed,
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, Debug)]
@@ -189,10 +207,15 @@ impl Game {
             presidential_turn: rng.gen_range(0..num_players),
             election_tracker: 0,
             last_government: None,
-            radicalised: false,
-            assassinated: false,
+            radicalisation: RadicalisationState::Unused,
+            assassination: AssassinationState::Unused,
             rng,
         })
+    }
+
+    /// Gets the game options.
+    pub fn options(&self) -> GameOptions {
+        self.opts
     }
 
     fn reveal_roles(players: &mut [Player]) {
@@ -204,11 +227,17 @@ impl Game {
                 let (p1, p2) = (&players[i], &players[j]);
                 let adjacent = players_are_adjacent(i, j, players.len());
                 let result = match (p1.role, p2.role) {
+                    // Everyone knows their own role
                     _ if i == j => InvestigationResult::Role(p2.role),
+                    // Ordinary fascists know all the fascists' identities
                     (Fascist, Fascist | Hitler | Monarchist) => InvestigationResult::Role(p2.role),
+                    // In smaller games, Hitler knows who the other fascist is
                     (Hitler, Fascist) if fascists < 2 => InvestigationResult::Role(p2.role),
+                    // Ordinary communists know all the communists' identities
                     (Communist, Communist | Anarchist) => InvestigationResult::Role(p2.role),
+                    // The centrists know each other
                     (Centrist, Centrist) => InvestigationResult::Role(p2.role),
+                    // The capitalist knows the party of the players either side of them
                     (Capitalist, _) if adjacent => InvestigationResult::Party(p2.party()),
                     _ => InvestigationResult::Unknown,
                 };
@@ -238,7 +267,7 @@ impl Game {
         };
         let can_proceed = confirmations.confirm(player);
         if can_proceed {
-            self.start_election(None);
+            self.start_round(None);
         }
         Ok(())
     }
@@ -271,7 +300,7 @@ impl Game {
         if let (false, Some(action)) = (chaos, self.board.get_executive_power(result)) {
             self.start_executive_action(action);
         } else {
-            self.start_election(None);
+            self.start_round(None);
         }
         Ok(())
     }
@@ -286,7 +315,7 @@ impl Game {
         };
         self.election_tracker += 1;
         self.check_deck();
-        self.start_election(None);
+        self.start_round(None);
         Ok(())
     }
 
@@ -321,8 +350,8 @@ impl Game {
 
     /// Called when a player chooses another player.
     pub fn choose_player(&mut self, player: usize, other: usize) -> Result<(), GameError> {
-        self.check_player_index(other)?;
         self.check_player_index(player)?;
+        self.check_player_index(other)?;
 
         match &mut self.state {
             GameState::Election {
@@ -357,14 +386,14 @@ impl Game {
                     InvestigatePlayer | SpecialElection | Execution | Confession => {
                         self.state = GameState::ActionReveal {
                             action,
-                            chosen_player: Some(player),
+                            chosen_player: Some(other),
                             confirmations: Confirmations::new(self.num_players_alive()),
                         };
                     }
                     Bugging | Radicalisation | Congress => {
                         self.state = GameState::CommunistEnd {
                             action,
-                            chosen_player: Some(player),
+                            chosen_player: Some(other),
                         };
                     }
                     _ => panic!("Invalid game state"),
@@ -397,6 +426,19 @@ impl Game {
                 eligible_chancellors.exclude(other);
                 Ok(())
             }
+            GameState::Assassination {
+                anarchist,
+                chosen_player,
+            } => {
+                if player != *anarchist || chosen_player.is_some() {
+                    return Err(GameError::InvalidAction);
+                }
+                if !self.players[other].alive || player == other {
+                    return Err(GameError::InvalidPlayerChoice);
+                }
+                *chosen_player = Some(other);
+                Ok(())
+            }
             _ => Err(GameError::InvalidAction),
         }
     }
@@ -425,7 +467,7 @@ impl Game {
                     self.check_game_over();
                 } else {
                     self.election_tracker += 1;
-                    self.start_election(None);
+                    self.start_round(None);
                 }
                 Ok(())
             }
@@ -549,6 +591,49 @@ impl Game {
         Ok(())
     }
 
+    /// Called when the anarchist wishes to execute a player.
+    pub fn start_assassination(&mut self, player_idx: usize) -> Result<(), GameError> {
+        let GameState::CardReveal { result, .. } = &self.state else {
+            return Err(GameError::InvalidAction);
+        };
+
+        let Some(player) = self.players.get(player_idx) else {
+            return Err(GameError::InvalidAction);
+        };
+        if !player.alive || player.role != Role::Anarchist {
+            return Err(GameError::InvalidAction);
+        }
+        if !matches!(self.assassination, AssassinationState::Unused) {
+            return Err(GameError::InvalidAction);
+        }
+
+        self.assassination = AssassinationState::Activated(player_idx);
+        self.end_card_reveal(Some(player_idx))
+    }
+
+    /// Called when the board has finished revealing the assassination.
+    pub fn end_assassination(&mut self) -> Result<(), GameError> {
+        let GameState::Assassination { anarchist, chosen_player } = &self.state else {
+            return Err(GameError::InvalidAction);
+        };
+        if chosen_player.is_none() {
+            return Err(GameError::InvalidAction);
+        }
+
+        let player = &mut self.players[chosen_player.unwrap()];
+        player.alive = false;
+        player.not_hitler = player.role != Role::Hitler;
+
+        self.assassination = AssassinationState::Completed;
+
+        if self.check_game_over() {
+            return Ok(());
+        }
+
+        self.start_round(None);
+        Ok(())
+    }
+
     /// Returns true if the game is over.
     pub fn game_over(&self) -> bool {
         matches!(self.state, GameState::GameOver(_))
@@ -579,7 +664,15 @@ impl Game {
         }
     }
 
-    fn start_election(&mut self, president: Option<usize>) {
+    fn start_round(&mut self, president: Option<usize>) {
+        if let AssassinationState::Activated(anarchist) = self.assassination {
+            self.state = GameState::Assassination {
+                anarchist,
+                chosen_player: None,
+            };
+            return;
+        }
+
         if self.election_tracker == 3 {
             let card = self.deck.draw_one();
             self.last_government = None;
