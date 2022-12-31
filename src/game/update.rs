@@ -46,7 +46,8 @@ pub enum BoardPrompt {
         outcome: Option<bool>,
     },
     SpecialElection {
-        monarchist_passed: bool,
+        can_hijack: bool,
+        hijacked_by: Option<usize>,
         chosen_player: Option<usize>,
     },
     MonarchistElection {
@@ -193,7 +194,7 @@ impl Game {
             draw_pile: self.deck.count(),
             presidential_turn: self.presidential_turn,
             last_government: self.last_government,
-            prompt: self.get_board_prompt(),
+            prompt: Some(self.get_board_prompt()),
         }
     }
 
@@ -218,55 +219,45 @@ impl Game {
             .collect()
     }
 
-    pub fn get_board_prompt(&self) -> Option<BoardPrompt> {
+    pub fn get_board_prompt(&self) -> BoardPrompt {
         use GameState::*;
 
         match &self.state {
-            Night { .. } => Some(BoardPrompt::Night),
+            Night { .. } => BoardPrompt::Night,
 
             Election {
                 president,
                 chancellor,
                 votes,
                 ..
-            } => Some(BoardPrompt::Election {
+            } => BoardPrompt::Election {
                 president: *president,
                 chancellor: *chancellor,
                 votes: votes.votes().to_vec(),
                 outcome: votes.outcome(),
-            }),
+            },
 
             MonarchistElection {
                 monarchist,
-                president,
-                confirmed,
+                last_president: president,
                 monarchist_chancellor,
                 president_chancellor,
                 votes,
                 ..
-            } => {
-                if !confirmed {
-                    Some(BoardPrompt::SpecialElection {
-                        monarchist_passed: false,
-                        chosen_player: None,
-                    })
-                } else {
-                    Some(BoardPrompt::MonarchistElection {
-                        monarchist: *monarchist,
-                        president: *president,
-                        monarchist_chancellor: *monarchist_chancellor,
-                        president_chancellor: *president_chancellor,
-                        votes: votes.votes().to_vec(),
-                        outcome: votes.outcome(),
-                    })
-                }
-            }
+            } => BoardPrompt::MonarchistElection {
+                monarchist: *monarchist,
+                president: *president,
+                monarchist_chancellor: *monarchist_chancellor,
+                president_chancellor: *president_chancellor,
+                votes: votes.votes().to_vec(),
+                outcome: votes.outcome(),
+            },
 
             LegislativeSession {
                 president,
                 chancellor,
                 turn,
-            } => Some(BoardPrompt::LegislativeSession {
+            } => BoardPrompt::LegislativeSession {
                 president: *president,
                 chancellor: *chancellor,
                 phase: match turn {
@@ -279,35 +270,41 @@ impl Game {
                     LegislativeSessionTurn::VetoRequested { .. } => LegislativePhase::VetoRejected,
                     LegislativeSessionTurn::VetoApproved => LegislativePhase::VetoApproved,
                 },
-            }),
+            },
 
             CardReveal {
                 result,
                 chaos,
                 board_ready,
                 ..
-            } => Some(BoardPrompt::CardReveal {
+            } => BoardPrompt::CardReveal {
                 result: *result,
                 chaos: *chaos,
                 can_end: !*board_ready,
-            }),
+            },
 
-            CommunistStart { action } => Some(BoardPrompt::CommunistSession {
+            CommunistStart { action } => BoardPrompt::CommunistSession {
                 action: *action,
                 phase: CommunistSessionPhase::Entering,
-            }),
+            },
 
-            Congress { .. } => Some(BoardPrompt::CommunistSession {
-                action: ExecutiveAction::Congress,
-                phase: CommunistSessionPhase::InProgress,
-            }),
+            PromptMonarchist {
+                monarchist,
+                hijacked,
+                ..
+            } => BoardPrompt::SpecialElection {
+                can_hijack: !hijacked,
+                hijacked_by: hijacked.then_some(*monarchist),
+                chosen_player: None,
+            },
 
-            ChoosePlayer { action, .. } => Some(match action {
+            ChoosePlayer { action, .. } => match action {
                 ExecutiveAction::InvestigatePlayer => BoardPrompt::InvestigatePlayer {
                     chosen_player: None,
                 },
                 ExecutiveAction::SpecialElection => BoardPrompt::SpecialElection {
-                    monarchist_passed: true,
+                    can_hijack: false,
+                    hijacked_by: None,
                     chosen_player: None,
                 },
                 ExecutiveAction::Execution => BoardPrompt::Execution {
@@ -325,23 +322,29 @@ impl Game {
                     party: None,
                 },
                 _ => unreachable!(),
-            }),
+            },
 
-            CommunistEnd { action, .. } => Some(BoardPrompt::CommunistSession {
+            Congress { .. } => BoardPrompt::CommunistSession {
+                action: ExecutiveAction::Congress,
+                phase: CommunistSessionPhase::InProgress,
+            },
+
+            CommunistEnd { action, .. } => BoardPrompt::CommunistSession {
                 action: *action,
                 phase: CommunistSessionPhase::Leaving,
-            }),
+            },
 
             ActionReveal {
                 action,
                 chosen_player,
                 ..
-            } => Some(match action {
+            } => match action {
                 ExecutiveAction::InvestigatePlayer => BoardPrompt::InvestigatePlayer {
                     chosen_player: *chosen_player,
                 },
                 ExecutiveAction::SpecialElection => BoardPrompt::SpecialElection {
-                    monarchist_passed: true,
+                    can_hijack: false,
+                    hijacked_by: None,
                     chosen_player: *chosen_player,
                 },
                 ExecutiveAction::PolicyPeak => BoardPrompt::PolicyPeak,
@@ -359,17 +362,17 @@ impl Game {
                     chosen_player: *chosen_player,
                     party: chosen_player.map(|i| self.players[i].party()),
                 },
-            }),
+            },
 
             Assassination {
                 anarchist,
                 chosen_player,
-            } => Some(BoardPrompt::Assassination {
+            } => BoardPrompt::Assassination {
                 anarchist: *anarchist,
                 chosen_player: *chosen_player,
-            }),
+            },
 
-            GameOver(outcome) => Some(BoardPrompt::GameOver { outcome: *outcome }),
+            GameOver(outcome) => BoardPrompt::GameOver { outcome: *outcome },
         }
     }
 
@@ -403,16 +406,13 @@ impl Game {
 
             MonarchistElection {
                 monarchist,
-                president,
-                confirmed,
+                last_president: president,
                 monarchist_chancellor,
                 president_chancellor,
                 eligible_chancellors,
                 votes,
             } => {
-                if !confirmed {
-                    (player.role == Role::Monarchist).then_some(PlayerPrompt::HijackElection)
-                } else if monarchist_chancellor.is_none() {
+                if monarchist_chancellor.is_none() {
                     (player_idx == *monarchist).then_some(PlayerPrompt::ChoosePlayer {
                         kind: ChoosePlayerKind::MonarchistFirstChancellor,
                         options: eligible_chancellors.names(self),
@@ -465,9 +465,11 @@ impl Game {
 
             CommunistStart { .. } => None,
 
-            Congress { .. } => {
-                (player.role == Role::Communist).then_some(PlayerPrompt::EndCongress)
-            }
+            PromptMonarchist {
+                monarchist,
+                hijacked,
+                ..
+            } => (!hijacked && player_idx == *monarchist).then_some(PlayerPrompt::HijackElection),
 
             ChoosePlayer {
                 action,
@@ -488,6 +490,10 @@ impl Game {
                     options: can_be_selected.names(self),
                 }
             }),
+
+            Congress { .. } => {
+                (player.role == Role::Communist).then_some(PlayerPrompt::EndCongress)
+            }
 
             CommunistEnd { .. } => None,
 

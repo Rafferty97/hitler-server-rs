@@ -43,6 +43,7 @@ fn liberal_track_victory() {
             Player::new("ED".to_string(), Role::Liberal),
         ],
         presidential_turn: 0,
+        next_president: None,
         rng: ChaCha8Rng::seed_from_u64(0),
         state: GameState::CardReveal {
             result: Liberal,
@@ -84,6 +85,7 @@ fn fascist_track_victory() {
             Player::new("ED".to_string(), Role::Liberal),
         ],
         presidential_turn: 0,
+        next_president: None,
         rng: ChaCha8Rng::seed_from_u64(0),
         state: GameState::CardReveal {
             result: Fascist,
@@ -128,6 +130,7 @@ fn eligible_chancellors_5players() {
             Player::new("ED".to_string(), Role::Hitler),
         ],
         presidential_turn: 0,
+        next_president: None,
         rng: ChaCha8Rng::seed_from_u64(0),
         state: GameState::CardReveal {
             result: Fascist,

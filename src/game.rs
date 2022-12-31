@@ -39,11 +39,23 @@ pub struct Game {
     deck: Deck,
     state: GameState,
     presidential_turn: usize,
+    next_president: Option<NextPresident>,
     election_tracker: usize,
     last_government: Option<Government>,
     radicalised: bool,
     assassination: AssassinationState,
     rng: rand_chacha::ChaCha8Rng,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+enum NextPresident {
+    Normal {
+        player: usize,
+    },
+    Monarchist {
+        monarchist: usize,
+        last_president: usize,
+    },
 }
 
 /// Represents the current phase in the game loop.
@@ -62,16 +74,14 @@ enum GameState {
         /// The player who is the monarchist, and therefore the next president
         monarchist: usize,
         /// The last president who unlocked the special election power
-        president: usize,
-        /// Whether the monarchist has elected to hijack the election.
-        confirmed: bool,
+        last_president: usize,
         /// The monarchist's choice for chancellor
         monarchist_chancellor: Option<usize>,
         /// The last president's choice for chancellor
         president_chancellor: Option<usize>,
         /// Players eligible to be selected as chancellor
         eligible_chancellors: EligiblePlayers,
-        /// Players votes for the chancellor; the monarchist breaks ties
+        /// Players' votes for the chancellor; the monarchist breaks ties
         votes: MonarchistVotes,
     },
     LegislativeSession {
@@ -88,12 +98,17 @@ enum GameState {
     CommunistStart {
         action: ExecutiveAction,
     },
-    Congress,
+    PromptMonarchist {
+        monarchist: usize,
+        last_president: usize,
+        hijacked: bool,
+    },
     ChoosePlayer {
         action: ExecutiveAction,
         can_select: EligiblePlayers,
         can_be_selected: EligiblePlayers,
     },
+    Congress,
     CommunistEnd {
         action: ExecutiveAction,
         chosen_player: Option<usize>,
@@ -198,6 +213,7 @@ impl Game {
                 confirmations: Confirmations::new(num_players),
             },
             presidential_turn: rng.gen_range(0..num_players),
+            next_president: None,
             election_tracker: 0,
             last_government: None,
             radicalised: false,
@@ -260,7 +276,7 @@ impl Game {
         };
         let can_proceed = confirmations.confirm(player);
         if can_proceed {
-            self.start_round(None);
+            self.start_round();
         }
         Ok(())
     }
@@ -293,7 +309,7 @@ impl Game {
         if let (false, Some(action)) = (chaos, self.board.get_executive_power(result)) {
             self.start_executive_action(action);
         } else {
-            self.start_round(None);
+            self.start_round();
         }
         Ok(())
     }
@@ -308,7 +324,7 @@ impl Game {
         };
         self.election_tracker += 1;
         self.check_deck();
-        self.start_round(None);
+        self.start_round();
         Ok(())
     }
 
@@ -322,22 +338,6 @@ impl Game {
             return Err(GameError::InvalidAction);
         }
         votes.vote(player, vote);
-        Ok(())
-    }
-
-    /// Called when a player casts their vote in a monarchist election.
-    pub fn cast_monarchist_vote(&mut self, player: usize, vote: usize) -> Result<(), GameError> {
-        self.check_player_index(player)?;
-        let GameState::MonarchistElection { monarchist_chancellor, president_chancellor, votes, .. } = &mut self.state else {
-            return Err(GameError::InvalidAction);
-        };
-        let (Some(c1), Some(c2)) = (*monarchist_chancellor, *president_chancellor) else {
-            return Err(GameError::InvalidAction);
-        };
-        if vote == c1 || vote == c2 {
-            return Err(GameError::InvalidPlayerChoice);
-        };
-        votes.vote(player, vote == c1);
         Ok(())
     }
 
@@ -402,28 +402,51 @@ impl Game {
             }
             GameState::MonarchistElection {
                 monarchist,
-                president,
-                confirmed,
+                last_president,
                 monarchist_chancellor,
                 president_chancellor,
                 eligible_chancellors,
-                ..
+                votes,
             } => {
-                if !*confirmed {
-                    return Err(GameError::InvalidAction);
-                }
-                let (turn, chancellor) = if monarchist_chancellor.is_none() {
-                    (*monarchist, monarchist_chancellor)
-                } else if president_chancellor.is_none() {
-                    (*president, monarchist_chancellor)
-                } else {
-                    return Err(GameError::InvalidAction);
+                let Some(mon_chan) = *monarchist_chancellor else {
+                    if player != *monarchist {
+                        return Err(GameError::InvalidAction);
+                    }
+                    if !eligible_chancellors.includes(other) {
+                        return Err(GameError::InvalidPlayerChoice);
+                    }
+                    *monarchist_chancellor = Some(other);
+                    eligible_chancellors.exclude(other);
+                    return Ok(());
                 };
-                if player != turn || !eligible_chancellors.includes(other) {
-                    return Err(GameError::InvalidPlayerChoice);
+
+                let Some(pres_chan) = *president_chancellor else {
+                    if player != *last_president {
+                        return Err(GameError::InvalidAction);
+                    }
+                    if !eligible_chancellors.includes(other) {
+                        return Err(GameError::InvalidPlayerChoice);
+                    }
+                    *president_chancellor = Some(other);
+                    eligible_chancellors.exclude(other);
+                    return Ok(());
+                };
+
+                if votes.has_cast(player) {
+                    return Err(GameError::InvalidAction);
                 }
-                *chancellor = Some(other);
-                eligible_chancellors.exclude(other);
+
+                votes.vote(
+                    player,
+                    if other == mon_chan {
+                        true
+                    } else if other == pres_chan {
+                        false
+                    } else {
+                        return Err(GameError::InvalidPlayerChoice);
+                    },
+                );
+
                 Ok(())
             }
             GameState::Assassination {
@@ -467,7 +490,7 @@ impl Game {
                     self.check_game_over();
                 } else {
                     self.election_tracker += 1;
-                    self.start_round(None);
+                    self.start_round();
                 }
                 Ok(())
             }
@@ -596,7 +619,6 @@ impl Game {
         let GameState::CardReveal { .. } = &self.state else {
             return Err(GameError::InvalidAction);
         };
-
         let Some(player) = self.players.get(player_idx) else {
             return Err(GameError::InvalidAction);
         };
@@ -610,6 +632,7 @@ impl Game {
         self.assassination = AssassinationState::Activated {
             anarchist: player_idx,
         };
+
         self.end_card_reveal(Some(player_idx))
     }
 
@@ -632,7 +655,7 @@ impl Game {
             return Ok(());
         }
 
-        self.start_round(None);
+        self.start_round();
         Ok(())
     }
 
@@ -666,7 +689,14 @@ impl Game {
         }
     }
 
-    fn start_round(&mut self, president: Option<usize>) {
+    fn start_round(&mut self) {
+        if self.election_tracker == 3 {
+            let card = self.deck.draw_one();
+            self.last_government = None;
+            self.play_card(card, true);
+            return;
+        }
+
         if let AssassinationState::Activated { anarchist } = self.assassination {
             self.state = GameState::Assassination {
                 anarchist,
@@ -675,23 +705,41 @@ impl Game {
             return;
         }
 
-        if self.election_tracker == 3 {
-            let card = self.deck.draw_one();
-            self.last_government = None;
-            self.play_card(card, true);
-            return;
-        }
+        let next_president = self
+            .next_president
+            .take()
+            .and_then(|n| {
+                let player_idx = match n {
+                    NextPresident::Normal { player } => player,
+                    NextPresident::Monarchist { monarchist, .. } => monarchist,
+                };
+                self.players[player_idx].alive.then_some(n)
+            })
+            .unwrap_or_else(|| {
+                self.presidential_turn = self.next_player(self.presidential_turn);
+                NextPresident::Normal {
+                    player: self.presidential_turn,
+                }
+            });
 
-        let president = president.unwrap_or_else(|| {
-            self.presidential_turn = self.next_player(self.presidential_turn);
-            self.presidential_turn
-        });
-
-        self.state = GameState::Election {
-            president,
-            chancellor: None,
-            eligible_chancellors: self.eligble_chancellors(president),
-            votes: Votes::new(self.num_players_alive()),
+        self.state = match next_president {
+            NextPresident::Normal { player } => GameState::Election {
+                president: player,
+                chancellor: None,
+                eligible_chancellors: self.eligble_chancellors(player),
+                votes: Votes::new(self.num_players_alive()),
+            },
+            NextPresident::Monarchist {
+                monarchist,
+                last_president,
+            } => GameState::MonarchistElection {
+                monarchist,
+                last_president,
+                monarchist_chancellor: None,
+                president_chancellor: None,
+                eligible_chancellors: self.eligble_chancellors(monarchist),
+                votes: MonarchistVotes::new(self.num_players_alive(), monarchist),
+            },
         };
     }
 

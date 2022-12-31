@@ -1,4 +1,4 @@
-use super::{player::Role, votes::MonarchistVotes, Game, GameState};
+use super::{player::Role, Game, GameState, NextPresident};
 use crate::{
     error::GameError,
     game::{confirmations::Confirmations, eligible::EligiblePlayers, government::Government},
@@ -74,16 +74,14 @@ impl Game {
                 };
             }
             SpecialElection => {
+                // Note: We still want to "wait for the monarchist" even if they're dead,
+                // so as to not reveal any information to other players.
                 let monarchist = self.players.iter().position(|p| p.role == Role::Monarchist);
                 if let Some(monarchist) = monarchist {
-                    self.state = GameState::MonarchistElection {
+                    self.state = GameState::PromptMonarchist {
                         monarchist,
-                        president,
-                        confirmed: false,
-                        monarchist_chancellor: None,
-                        president_chancellor: None,
-                        eligible_chancellors: self.eligble_chancellors(monarchist),
-                        votes: MonarchistVotes::new(self.num_players_alive(), monarchist),
+                        last_president: president,
+                        hijacked: false,
                     };
                 } else {
                     self.state = GameState::ChoosePlayer {
@@ -167,33 +165,37 @@ impl Game {
 
     /// Called when the monarchist elects to hijack a special election.
     pub fn hijack_special_election(&mut self, player: usize) -> Result<(), GameError> {
-        let GameState::MonarchistElection { monarchist, confirmed, .. } = &mut self.state else {
+        let GameState::PromptMonarchist { monarchist, hijacked, .. } = &mut self.state else {
             return Err(GameError::InvalidAction);
         };
 
-        if player != *monarchist || !self.players[*monarchist].alive {
+        if player != *monarchist || !self.players[player].alive {
             return Err(GameError::InvalidAction);
         };
 
-        *confirmed = true;
+        *hijacked = true;
         Ok(())
     }
 
-    /// Called when the board has finished giving the monarchist a chance to hijack a special election.
+    /// Called when the board has finished presenting the special election screen
     pub fn start_special_election(&mut self) -> Result<(), GameError> {
-        let GameState::MonarchistElection { president, confirmed, .. } = &self.state else {
+        let GameState::PromptMonarchist { monarchist, last_president, hijacked } = self.state else {
             return Err(GameError::InvalidAction);
         };
 
-        if *confirmed {
-            return Err(GameError::InvalidAction);
+        if hijacked {
+            self.next_president = Some(NextPresident::Monarchist {
+                monarchist,
+                last_president,
+            });
+            self.start_round();
+        } else {
+            self.state = GameState::ChoosePlayer {
+                action: ExecutiveAction::SpecialElection,
+                can_select: EligiblePlayers::only_one(last_president),
+                can_be_selected: self.eligible_players().exclude(last_president).make(),
+            };
         }
-
-        self.state = GameState::ChoosePlayer {
-            action: ExecutiveAction::SpecialElection,
-            can_select: EligiblePlayers::only_one(*president),
-            can_be_selected: self.eligible_players().exclude(*president).make(),
-        };
         Ok(())
     }
 
@@ -207,7 +209,7 @@ impl Game {
 
         match action {
             Bugging => {
-                self.start_round(None);
+                self.start_round();
             }
             Radicalisation | Congress => {
                 if let Some(player_idx) = chosen_player {
@@ -262,11 +264,12 @@ impl Game {
         match action {
             InvestigatePlayer => {
                 self.players[chosen_player.unwrap()].investigated = true;
-                self.start_round(None);
+                self.start_round();
             }
             SpecialElection => {
-                let player = *chosen_player;
-                self.start_round(player);
+                let player = chosen_player.unwrap();
+                self.next_president = Some(NextPresident::Normal { player });
+                self.start_round();
             }
             Execution => {
                 let player = &mut self.players[chosen_player.unwrap()];
@@ -277,7 +280,7 @@ impl Game {
                     return Ok(());
                 }
 
-                self.start_round(None);
+                self.start_round();
             }
             Bugging => {
                 self.state = GameState::CommunistEnd {
@@ -287,10 +290,10 @@ impl Game {
             }
             FiveYearPlan => {
                 self.deck.five_year_plan(&mut self.rng);
-                self.start_round(None);
+                self.start_round();
             }
             _ => {
-                self.start_round(None);
+                self.start_round();
             }
         }
         Ok(())
