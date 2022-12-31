@@ -68,7 +68,9 @@ impl<'a> EligiblePlayersBuilder<'a> {
 
     pub fn can_radicalise(mut self) -> Self {
         for (idx, player) in self.game.players.iter().enumerate() {
-            self.eligible[idx] &= player.party() != Party::Communist && !player.tried_to_radicalise;
+            self.eligible[idx] &= player.party() != Party::Communist;
+            self.eligible[idx] &= !player.investigated;
+            self.eligible[idx] &= !player.tried_to_radicalise;
         }
         self
     }
