@@ -63,6 +63,7 @@ enum WsRequest {
     CreateGame { options: GameOptions },
     JoinAsBoard { game_id: String },
     JoinAsPlayer { game_id: String, name: String },
+    LeaveGame,
     StartGame,
     BoardAction(BoardAction),
     PlayerAction(PlayerAction),
@@ -83,6 +84,7 @@ fn process_request(req: WsRequest, client: &mut Client) -> Result<(), GameError>
         WsRequest::JoinAsPlayer { game_id, name } => {
             client.join_as_player(&game_id, &name)?;
         }
+        WsRequest::LeaveGame => client.leave(),
         WsRequest::StartGame => client.start_game()?,
         WsRequest::BoardAction(action) => {
             // Explicitely ignore errors as they will occur when there is more than one game board.

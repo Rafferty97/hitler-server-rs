@@ -126,6 +126,14 @@ impl<'a> Client<'a> {
         })
     }
 
+    /// Leaves the game.
+    pub fn leave(&mut self) {
+        self.player = None;
+        self.game_id = None;
+        self.updates = None;
+        self.session = None;
+    }
+
     /// Starts a new game of Secret Hitler.
     pub fn start_game(&self) -> Result<(), GameError> {
         let Some(session) = &self.session else {

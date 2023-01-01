@@ -28,13 +28,6 @@ pub enum Role {
     Centrist,
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Debug)]
-pub enum InvestigationResult {
-    Unknown,
-    Party(Party),
-    Role(Role),
-}
-
 impl ToString for Role {
     fn to_string(&self) -> String {
         match self {
@@ -49,6 +42,13 @@ impl ToString for Role {
         }
         .to_string()
     }
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub enum InvestigationResult {
+    Unknown,
+    Party(Party),
+    Role(Role),
 }
 
 impl Player {
