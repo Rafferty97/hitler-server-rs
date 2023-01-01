@@ -10,6 +10,7 @@ use tokio::{io::AsyncWriteExt, net::TcpListener};
 mod client;
 mod error;
 mod game;
+mod pg;
 mod session;
 mod time;
 mod ws;
@@ -18,6 +19,11 @@ mod ws;
 async fn main() {
     dotenv::dotenv().ok();
     env_logger::try_init().ok();
+
+    if let Err(err) = pg::foo().await {
+        eprint!("{:?}", err);
+    }
+    return;
 
     let Ok(Ok(port)) = std::env::var("PORT").map(|s| s.parse::<u16>()) else {
         log::error!("port is unspecified or is invalid");
