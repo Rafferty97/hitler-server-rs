@@ -3,6 +3,8 @@ use thiserror::Error;
 /// The result of attempting to perform an invalid operation on a [Game] or [Session].
 #[derive(Error, Debug)]
 pub enum GameError {
+    #[error("invalid combination of game options")]
+    InvalidGameOptions,
     #[error("game does not exist")]
     GameNotFound,
     #[error("too few players in the game")]

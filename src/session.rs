@@ -46,6 +46,8 @@ enum Game {
     Lobby {
         options: GameOptions,
         players: Vec<String>,
+        min_players: usize,
+        max_players: usize,
     },
     Playing {
         /// The game itself.
@@ -94,17 +96,17 @@ impl SessionManager {
         Ok(Self { sessions, dbs })
     }
 
-    pub fn create_game(&self, options: GameOptions) -> SessionHandle {
+    pub fn create_game(&self, options: GameOptions) -> Result<SessionHandle, GameError> {
         loop {
             let id = Self::random_id();
             let entry = self.sessions.entry(id);
             if let Entry::Occupied(_) = entry {
                 continue;
             }
-            let session = Session::new(entry.key().clone(), self.dbs.clone(), options);
+            let session = Session::new(entry.key().clone(), self.dbs.clone(), options)?;
             let session = Arc::new(Mutex::new(session));
             entry.or_insert(session.clone());
-            break session;
+            break Ok(session);
         }
     }
 
@@ -160,12 +162,14 @@ impl SessionManager {
 }
 
 impl Session {
-    fn new(id: String, dbs: Dbs, options: GameOptions) -> Self {
+    fn new(id: String, dbs: Dbs, options: GameOptions) -> Result<Self, GameError> {
         let game = Game::Lobby {
             options,
             players: vec![],
+            min_players: options.min_players().ok_or(GameError::InvalidGameOptions)?,
+            max_players: options.max_players().ok_or(GameError::InvalidGameOptions)?,
         };
-        Self::hydrate(id, dbs, game)
+        Ok(Self::hydrate(id, dbs, game))
     }
 
     fn hydrate(id: String, dbs: Dbs, game: Game) -> Self {
@@ -191,11 +195,11 @@ impl Session {
     /// unless the game is unable to accept any new players.
     pub fn add_player(&mut self, name: &str) -> Result<(), GameError> {
         match &mut self.game {
-            Game::Lobby { options, players } => {
+            Game::Lobby { players, max_players, .. } => {
                 if players.iter().any(|n| *n == name) {
                     return Ok(());
                 }
-                if players.len() == options.max_players() {
+                if players.len() == *max_players {
                     return Err(GameError::TooManyPlayers);
                 }
                 players.push(name.to_string());
@@ -278,7 +282,7 @@ impl Session {
     /// Notifies all connected clients of the new game state.
     fn notify(&mut self) {
         let state = match &self.game {
-            Game::Lobby { players, options } => Self::lobby_update(players, options),
+            Game::Lobby { players, options, .. } => Self::lobby_update(players, options),
             Game::Playing { game, .. } => Self::game_update(game),
             Game::GameOver => Self::game_over_update(),
         };
@@ -293,7 +297,7 @@ impl Session {
             alive: true,
             not_hitler: false,
         };
-        let can_start = players.len() >= opts.min_players();
+        let can_start = players.len() >= opts.min_players().unwrap_or(999);
         GameUpdate {
             lifecycle: GameLifecycle::Lobby { can_start },
             players: players.iter().map(make_player).collect(),

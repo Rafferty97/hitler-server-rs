@@ -128,6 +128,7 @@ pub enum PlayerPrompt {
     Dead,
     GameOver {
         outcome: WinCondition,
+        won: bool,
     },
 }
 
@@ -226,10 +227,7 @@ impl Game {
             Night { .. } => BoardPrompt::Night,
 
             Election {
-                president,
-                chancellor,
-                votes,
-                ..
+                president, chancellor, votes, ..
             } => BoardPrompt::Election {
                 president: *president,
                 chancellor: *chancellor,
@@ -253,11 +251,7 @@ impl Game {
                 outcome: votes.outcome(),
             },
 
-            LegislativeSession {
-                president,
-                chancellor,
-                turn,
-            } => BoardPrompt::LegislativeSession {
+            LegislativeSession { president, chancellor, turn } => BoardPrompt::LegislativeSession {
                 president: *president,
                 chancellor: *chancellor,
                 phase: match turn {
@@ -272,12 +266,7 @@ impl Game {
                 },
             },
 
-            CardReveal {
-                result,
-                chaos,
-                board_ready,
-                ..
-            } => BoardPrompt::CardReveal {
+            CardReveal { result, chaos, board_ready, .. } => BoardPrompt::CardReveal {
                 result: *result,
                 chaos: *chaos,
                 can_end: !*board_ready,
@@ -288,28 +277,22 @@ impl Game {
                 phase: CommunistSessionPhase::Entering,
             },
 
-            PromptMonarchist {
-                monarchist,
-                hijacked,
-                ..
-            } => BoardPrompt::SpecialElection {
+            PromptMonarchist { monarchist, hijacked, .. } => BoardPrompt::SpecialElection {
                 can_hijack: !hijacked,
                 hijacked_by: hijacked.then_some(*monarchist),
                 chosen_player: None,
             },
 
             ChoosePlayer { action, .. } => match action {
-                ExecutiveAction::InvestigatePlayer => BoardPrompt::InvestigatePlayer {
-                    chosen_player: None,
-                },
+                ExecutiveAction::InvestigatePlayer => {
+                    BoardPrompt::InvestigatePlayer { chosen_player: None }
+                }
                 ExecutiveAction::SpecialElection => BoardPrompt::SpecialElection {
                     can_hijack: false,
                     hijacked_by: None,
                     chosen_player: None,
                 },
-                ExecutiveAction::Execution => BoardPrompt::Execution {
-                    chosen_player: None,
-                },
+                ExecutiveAction::Execution => BoardPrompt::Execution { chosen_player: None },
                 ExecutiveAction::Bugging
                 | ExecutiveAction::Radicalisation
                 | ExecutiveAction::Congress => BoardPrompt::CommunistSession {
@@ -334,23 +317,19 @@ impl Game {
                 phase: CommunistSessionPhase::Leaving,
             },
 
-            ActionReveal {
-                action,
-                chosen_player,
-                ..
-            } => match action {
-                ExecutiveAction::InvestigatePlayer => BoardPrompt::InvestigatePlayer {
-                    chosen_player: *chosen_player,
-                },
+            ActionReveal { action, chosen_player, .. } => match action {
+                ExecutiveAction::InvestigatePlayer => {
+                    BoardPrompt::InvestigatePlayer { chosen_player: *chosen_player }
+                }
                 ExecutiveAction::SpecialElection => BoardPrompt::SpecialElection {
                     can_hijack: false,
                     hijacked_by: None,
                     chosen_player: *chosen_player,
                 },
                 ExecutiveAction::PolicyPeak => BoardPrompt::PolicyPeak,
-                ExecutiveAction::Execution => BoardPrompt::Execution {
-                    chosen_player: *chosen_player,
-                },
+                ExecutiveAction::Execution => {
+                    BoardPrompt::Execution { chosen_player: *chosen_player }
+                }
                 ExecutiveAction::Bugging
                 | ExecutiveAction::Radicalisation
                 | ExecutiveAction::Congress => BoardPrompt::CommunistSession {
@@ -364,10 +343,7 @@ impl Game {
                 },
             },
 
-            Assassination {
-                anarchist,
-                chosen_player,
-            } => BoardPrompt::Assassination {
+            Assassination { anarchist, chosen_player } => BoardPrompt::Assassination {
                 anarchist: *anarchist,
                 chosen_player: *chosen_player,
             },
@@ -433,11 +409,7 @@ impl Game {
                 }
             }
 
-            LegislativeSession {
-                president,
-                chancellor,
-                turn,
-            } => match turn {
+            LegislativeSession { president, chancellor, turn } => match turn {
                 LegislativeSessionTurn::President { cards } => (player_idx == *president)
                     .then_some(PlayerPrompt::PresidentDiscard { cards: *cards }),
                 LegislativeSessionTurn::Chancellor { cards, veto } => (player_idx == *chancellor)
@@ -451,11 +423,7 @@ impl Game {
                 LegislativeSessionTurn::VetoApproved => None,
             },
 
-            CardReveal {
-                confirmations,
-                board_ready,
-                ..
-            } => {
+            CardReveal { confirmations, board_ready, .. } => {
                 use AssassinationState::Unused;
                 let unconfirmed = *board_ready && !confirmations.has_confirmed(player_idx);
                 unconfirmed.then_some(PlayerPrompt::StartElection {
@@ -465,11 +433,9 @@ impl Game {
 
             CommunistStart { .. } => None,
 
-            PromptMonarchist {
-                monarchist,
-                hijacked,
-                ..
-            } => (!hijacked && player_idx == *monarchist).then_some(PlayerPrompt::HijackElection),
+            PromptMonarchist { monarchist, hijacked, .. } => {
+                (!hijacked && player_idx == *monarchist).then_some(PlayerPrompt::HijackElection)
+            }
 
             ChoosePlayer {
                 action,
@@ -558,7 +524,10 @@ impl Game {
                 })
             }
 
-            GameOver(outcome) => Some(PlayerPrompt::GameOver { outcome: *outcome }),
+            GameOver(outcome) => Some(PlayerPrompt::GameOver {
+                outcome: *outcome,
+                won: self.player_has_won(player_idx),
+            }),
         }
     }
 }

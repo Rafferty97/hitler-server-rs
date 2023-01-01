@@ -62,7 +62,7 @@ impl<'a> Client<'a> {
 
     /// Creates a new game session, returning its ID.
     pub fn create_game(&mut self, options: GameOptions) -> Result<String, GameError> {
-        let session = self.manager.create_game(options);
+        let session = self.manager.create_game(options)?;
         let id = session.lock().unwrap().id().to_owned();
         Ok(id)
     }

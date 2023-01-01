@@ -188,7 +188,7 @@ impl Game {
 
         // Generate the players and their roles
         let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
-        let roles = assign_roles(num_players, &opts, &mut rng)?;
+        let roles = assign_roles(opts.player_distribution(num_players)?, &mut rng);
         let mut players = player_names
             .iter()
             .zip(roles)
@@ -449,10 +449,7 @@ impl Game {
 
                 Ok(())
             }
-            GameState::Assassination {
-                anarchist,
-                chosen_player,
-            } => {
+            GameState::Assassination { anarchist, chosen_player } => {
                 if player != *anarchist || chosen_player.is_some() {
                     return Err(GameError::InvalidAction);
                 }
@@ -470,10 +467,7 @@ impl Game {
     pub fn end_voting(&mut self) -> Result<(), GameError> {
         match &self.state {
             GameState::Election {
-                president,
-                chancellor,
-                votes,
-                ..
+                president, chancellor, votes, ..
             } => {
                 let Some(chancellor) = chancellor else {
                     return Err(GameError::InvalidAction);
@@ -629,9 +623,7 @@ impl Game {
             return Err(GameError::InvalidAction);
         }
 
-        self.assassination = AssassinationState::Activated {
-            anarchist: player_idx,
-        };
+        self.assassination = AssassinationState::Activated { anarchist: player_idx };
 
         self.end_card_reveal(Some(player_idx))
     }
@@ -698,10 +690,7 @@ impl Game {
         }
 
         if let AssassinationState::Activated { anarchist } = self.assassination {
-            self.state = GameState::Assassination {
-                anarchist,
-                chosen_player: None,
-            };
+            self.state = GameState::Assassination { anarchist, chosen_player: None };
             return;
         }
 
@@ -717,9 +706,7 @@ impl Game {
             })
             .unwrap_or_else(|| {
                 self.presidential_turn = self.next_player(self.presidential_turn);
-                NextPresident::Normal {
-                    player: self.presidential_turn,
-                }
+                NextPresident::Normal { player: self.presidential_turn }
             });
 
         self.state = match next_president {
@@ -729,17 +716,16 @@ impl Game {
                 eligible_chancellors: self.eligble_chancellors(player),
                 votes: Votes::new(self.num_players_alive()),
             },
-            NextPresident::Monarchist {
-                monarchist,
-                last_president,
-            } => GameState::MonarchistElection {
-                monarchist,
-                last_president,
-                monarchist_chancellor: None,
-                president_chancellor: None,
-                eligible_chancellors: self.eligble_chancellors(monarchist),
-                votes: MonarchistVotes::new(self.num_players_alive(), monarchist),
-            },
+            NextPresident::Monarchist { monarchist, last_president } => {
+                GameState::MonarchistElection {
+                    monarchist,
+                    last_president,
+                    monarchist_chancellor: None,
+                    president_chancellor: None,
+                    eligible_chancellors: self.eligble_chancellors(monarchist),
+                    votes: MonarchistVotes::new(self.num_players_alive(), monarchist),
+                }
+            }
         };
     }
 

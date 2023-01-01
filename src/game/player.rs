@@ -88,72 +88,117 @@ impl Player {
     }
 }
 
-pub fn assign_roles(
-    num_players: usize,
-    opts: &GameOptions,
-    rng: &mut impl rand::Rng,
-) -> Result<Vec<Role>, GameError> {
-    let mut roles = vec![];
+#[derive(Clone, Copy, Debug)]
+pub struct PlayerDistribution {
+    pub num_players: usize,
+    pub liberals: usize,
+    pub fascists: usize,
+    pub communists: usize,
+    pub hitler: bool,
+    pub monarchist: bool,
+    pub anarchist: bool,
+    pub capitalist: bool,
+    pub centrists: bool,
+}
 
-    // Determine the total number of fascists and communists to include
-    let mut fascists = match (opts.communists, num_players) {
-        (false, ..=4) => return Err(GameError::TooFewPlayers),
-        (false, 5..=6) => 2,
-        (false, 7..=8) => 3,
-        (false, 9..=10) => 4,
-        (true, ..=5) => return Err(GameError::TooFewPlayers),
-        (true, 6..=7) => 2,
-        (true, 8..=10) => 3,
-        (true, 11..=14) => 4,
-        (true, 15..=16) => 5,
-        _ => return Err(GameError::TooManyPlayers),
-    };
+impl PlayerDistribution {
+    pub fn new(opts: &GameOptions, num_players: usize) -> Result<Self, GameError> {
+        let mut fascists: isize;
+        let mut communists: isize;
+        let mut liberals: isize;
 
-    let mut communists = match (opts.communists, num_players) {
-        (false, _) => 0,
-        (true, ..=5) => return Err(GameError::TooFewPlayers),
-        (true, 6..=8) => 1,
-        (true, 9..=12) => 2,
-        (true, 13..=15) => 3,
-        (true, 16) => 4,
-        _ => return Err(GameError::TooManyPlayers),
-    };
+        // Calculate the number of players in each party
+        if opts.communists {
+            fascists = match num_players {
+                ..=5 => return Err(GameError::TooFewPlayers),
+                6..=7 => 2,
+                8..=10 => 3,
+                11..=14 => 4,
+                15..=16 => 5,
+                _ => return Err(GameError::TooManyPlayers),
+            };
+            communists = match num_players {
+                ..=5 => return Err(GameError::TooFewPlayers),
+                6..=8 => 1,
+                9..=12 => 2,
+                13..=15 => 3,
+                16 => 4,
+                _ => return Err(GameError::TooManyPlayers),
+            };
+        } else {
+            fascists = match num_players {
+                ..=4 => return Err(GameError::TooFewPlayers),
+                5..=10 => (num_players as isize - 1) / 2,
+                _ => return Err(GameError::TooManyPlayers),
+            };
+            communists = 0;
+        }
+        liberals = num_players as isize - (fascists + communists);
 
-    // Add the fascist players
-    roles.push(Role::Hitler);
-    fascists -= 1;
+        // Subtract away the special roles
+        let hitler = true;
+        let GameOptions {
+            monarchist,
+            anarchist,
+            capitalist,
+            centrists,
+            ..
+        } = *opts;
 
-    if opts.monarchist {
+        fascists -= hitler as isize;
+        fascists -= monarchist as isize;
+        communists -= anarchist as isize;
+        liberals -= 2 * (centrists as isize);
+
+        // Ensure enough "ordinary" players remain
+        let min_communists = opts.communists as isize;
+        if fascists < 1 || communists < min_communists || liberals < 0 {
+            return Err(GameError::TooFewPlayers);
+        }
+
+        // Return the result
+        Ok(Self {
+            num_players,
+            liberals: liberals as usize,
+            fascists: fascists as usize,
+            communists: communists as usize,
+            hitler,
+            monarchist,
+            anarchist,
+            capitalist,
+            centrists,
+        })
+    }
+}
+
+pub fn assign_roles(distr: PlayerDistribution, rng: &mut impl rand::Rng) -> Vec<Role> {
+    let mut roles = Vec::with_capacity(distr.num_players);
+
+    roles.extend(repeat(Role::Fascist).take(distr.fascists));
+    roles.extend(repeat(Role::Communist).take(distr.communists));
+    roles.extend(repeat(Role::Liberal).take(distr.liberals));
+
+    if distr.hitler {
+        roles.push(Role::Hitler);
+    }
+    if distr.monarchist {
         roles.push(Role::Monarchist);
-        fascists -= 1;
     }
-
-    roles.extend(repeat(Role::Fascist).take(fascists));
-
-    // Add the communist players
-    if communists > 0 && opts.anarchist {
+    if distr.anarchist {
         roles.push(Role::Anarchist);
-        communists -= 1;
     }
-
-    roles.extend(repeat(Role::Communist).take(communists));
-
-    // Add the liberal players
-    if opts.capitalist {
+    if distr.capitalist {
         roles.push(Role::Capitalist);
     }
-
-    if opts.centrists {
+    if distr.centrists {
         roles.push(Role::Centrist);
         roles.push(Role::Centrist);
     }
 
-    let liberals = num_players - roles.len();
-    roles.extend(repeat(Role::Liberal).take(liberals));
+    assert_eq!(roles.len(), distr.num_players);
 
-    // Shuffle the roles and return
     roles.shuffle(rng);
-    Ok(roles)
+    roles
 }
 
 #[cfg(test)]
@@ -172,7 +217,8 @@ mod test {
             centrists: true,
             monarchist: false,
         };
-        let roles = assign_roles(10, &opts, &mut rand::thread_rng()).unwrap();
+        let distr = PlayerDistribution::new(&opts, 10).unwrap();
+        let roles = assign_roles(distr, &mut rand::thread_rng());
         assert_eq!(roles.iter().filter(|r| **r == Role::Hitler).count(), 1);
         assert_eq!(roles.iter().filter(|r| **r == Role::Monarchist).count(), 0);
         assert_eq!(roles.iter().filter(|r| **r == Role::Fascist).count(), 2);
