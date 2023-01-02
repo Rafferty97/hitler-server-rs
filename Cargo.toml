@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.66"
-chrono = "0.4.23"
+chrono = { version = "0.4.23", features=["serde"] }
 dashmap = "5.4.0"
 dotenv = "0.15.0"
 env_logger = "0.10.0"
@@ -18,5 +18,5 @@ serde_json = "1.0.90"
 sled = "0.34.7"
 thiserror = "1.0.37"
 tokio = { version = "1.23.0", features = ["full"] }
-tokio-postgres = "0.7.7"
+tokio-postgres = { version = "0.7.7", features = ["with-chrono-0_4"] }
 tokio-tungstenite = "0.18.0"
