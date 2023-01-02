@@ -109,30 +109,7 @@ async fn connect_pg() -> Result<Client, Box<dyn Error>> {
 
 fn read_row(entry: (IVec, IVec)) -> Option<(i64, GameStats)> {
     let key = u64::from_be_bytes(entry.0.as_ref().try_into().ok()?) as i64;
-    // let game = serde_json::from_slice::<GameStats>(&entry.1).ok()?;
-
-    let json = serde_json::from_slice::<Value>(&entry.1).ok()?;
-    let dt = |v: &Value| v.as_str().map(DateTime::parse_from_rfc3339);
-    let winner = json["outcome"]["winner"].as_str()?;
-    let condition = json["outcome"]["condition"].as_str()?;
-    let game = GameStats {
-        id: json["game_id"].as_str()?.to_string(),
-        started: dt(&json["started"])?.ok()?.into(),
-        finished: dt(&json["finished"])?.ok()?.into(),
-        players: json["players"]
-            .as_array()?
-            .iter()
-            .filter_map(|s| Some(s.as_str()?.to_string()))
-            .collect(),
-        outcome: match (winner, condition) {
-            ("Liberal", "legislative") => Outcome::LiberalPolicyTrack,
-            ("Liberal", "hitler") => Outcome::HitlerExecuted,
-            ("Fascist", "legislative") => Outcome::FascistPolicyTrack,
-            ("Fascist", "hitler") => Outcome::HitlerChancellor,
-            _ => return None,
-        },
-    };
-
+    let game = serde_json::from_slice::<GameStats>(&entry.1).ok()?;
     Some((key, game))
 }
 
