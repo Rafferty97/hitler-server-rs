@@ -57,7 +57,10 @@ async fn main() {
     });
 
     // Background task to write game statistics to PostgresQL
-    tokio::spawn(sync_game_stats(db));
+    tokio::spawn(async {
+        sync_game_stats(db).await;
+        tokio::time::sleep(Duration::from_secs(60)).await;
+    });
 
     // Accept connections
     while let Ok((stream, _)) = listener.accept().await {
