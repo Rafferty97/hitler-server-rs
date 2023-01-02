@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use sled::IVec;
 use std::{error::Error, time::Duration};
 use tokio_postgres::{types::ToSql, Client, NoTls, Statement};
