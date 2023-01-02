@@ -1,8 +1,11 @@
 use super::{
     player::{Player, Role},
-    Game,
+    Game, WinCondition,
 };
-use crate::game::{party::Party, GameState, LegislativeSessionTurn, VetoStatus};
+use crate::{
+    game::{party::Party, GameState, LegislativeSessionTurn, VetoStatus},
+    pg::Outcome,
+};
 use serde_json::{json, Value};
 
 impl Game {
@@ -97,14 +100,15 @@ impl Game {
             .collect()
     }
 
-    pub fn get_outcome_json(&self) -> Value {
+    pub fn outcome(&self) -> Option<Outcome> {
         let GameState::GameOver { winner, win_condition, .. } = &self.state else {
-            return json!({ "finished": false });
+            return None;
         };
-        json!({
-            "finished": true,
-            "winner": winner.to_string(),
-            "condition": win_condition.to_string()
+        Some(match (winner, win_condition) {
+            (Party::Liberal, WinCondition::Legislative) => Outcome::LiberalPolicyTrack,
+            (Party::Liberal, WinCondition::Hitler) => Outcome::HitlerExecuted,
+            (Party::Fascist, WinCondition::Legislative) => Outcome::FascistPolicyTrack,
+            (Party::Fascist, WinCondition::Hitler) => Outcome::HitlerChancellor,
         })
     }
 
