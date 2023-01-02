@@ -13,7 +13,6 @@ mod error;
 mod game;
 mod pg;
 mod session;
-mod time;
 mod ws;
 
 #[tokio::main]
