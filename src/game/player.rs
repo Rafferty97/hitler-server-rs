@@ -148,6 +148,7 @@ impl PlayerDistribution {
         fascists -= hitler as isize;
         fascists -= monarchist as isize;
         communists -= anarchist as isize;
+        liberals -= capitalist as isize;
         liberals -= 2 * (centrists as isize);
 
         // Ensure enough "ordinary" players remain
@@ -218,6 +219,7 @@ mod test {
             monarchist: false,
         };
         let distr = PlayerDistribution::new(&opts, 10).unwrap();
+        println!("{:?}", &distr);
         let roles = assign_roles(distr, &mut rand::thread_rng());
         assert_eq!(roles.iter().filter(|r| **r == Role::Hitler).count(), 1);
         assert_eq!(roles.iter().filter(|r| **r == Role::Monarchist).count(), 0);
