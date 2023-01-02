@@ -20,6 +20,8 @@ pub async fn sync_game_stats(db: sled::Db) {
         Err(err) => return log::error!("Could not connect to PostgresQL: {:?}", err),
     };
 
+    log::info!("Connected to PostgresQL.");
+
     let sql = "INSERT INTO game (id, code, started, finished, players, outcome)
         VALUES ($1, $2, $3, $4, $5, $6)
         ON CONFLICT DO NOTHING;";
