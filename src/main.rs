@@ -1,3 +1,4 @@
+use crate::pg::sync_game_stats;
 use crate::session::SessionManager;
 use crate::ws::accept_connection;
 use std::{
@@ -5,13 +6,13 @@ use std::{
     net::{Ipv4Addr, SocketAddrV4},
     time::Duration,
 };
-use tokio::{io::AsyncWriteExt, net::TcpListener};
+use tokio::net::TcpListener;
 
 mod client;
 mod error;
 mod game;
+mod pg;
 mod session;
-mod time;
 mod ws;
 
 #[tokio::main]
@@ -43,7 +44,7 @@ async fn main() {
         std::process::exit(1)
     });
     log::info!(
-        "Created session manager. Loaded {} games",
+        "Created session manager. Loaded {} games.",
         manager.num_games()
     );
 
@@ -55,8 +56,11 @@ async fn main() {
         }
     });
 
-    // Background task to emit game statistics
-    tokio::spawn(print_game_stats(db.clone()));
+    // Background task to write game statistics to PostgresQL
+    tokio::spawn(async {
+        sync_game_stats(db).await;
+        tokio::time::sleep(Duration::from_secs(60)).await;
+    });
 
     // Accept connections
     while let Ok((stream, _)) = listener.accept().await {
@@ -67,25 +71,4 @@ async fn main() {
 fn create_session_manager(db: sled::Db) -> Result<&'static mut SessionManager, Box<dyn Error>> {
     let manager = SessionManager::new(db)?;
     Ok(Box::leak(Box::new(manager)))
-}
-
-async fn print_game_stats(db: sled::Db) {
-    let run = || async {
-        log::info!("Writing games.txt");
-        let db = db.open_tree("archive")?;
-        let mut file = tokio::fs::File::create("games.txt").await?;
-        for entry in db.iter() {
-            let line = entry?.1;
-            file.write_all(&line).await?;
-            file.write_all(b"\n").await?;
-        }
-        file.flush().await?;
-        Ok::<(), Box<dyn Error>>(())
-    };
-    loop {
-        run().await.unwrap_or_else(|err| {
-            log::error!("Could not write games.txt: {:?}", err);
-        });
-        tokio::time::sleep(Duration::from_secs(30)).await;
-    }
 }

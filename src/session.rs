@@ -1,13 +1,14 @@
 use crate::game::{BoardUpdate, GameOptions, PlayerUpdate, PublicPlayer};
-use crate::time::iso8601;
+use crate::pg::GameStats;
 use crate::{error::GameError, game::Game as GameInner};
+use chrono::{DateTime, Utc};
 use dashmap::{mapref::entry::Entry, DashMap};
 use rand::{Rng, RngCore};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::error::Error;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 use tokio::sync::watch;
 
 /// Manages all the game sessions running on the server.
@@ -53,7 +54,7 @@ enum Game {
         /// The game itself.
         game: GameInner,
         /// Timestamp that the game was created.
-        started_ts: std::time::SystemTime,
+        started_ts: DateTime<Utc>,
         /// Whether this game has been archived.
         archived: bool,
     },
@@ -233,7 +234,7 @@ impl Session {
         let seed = rand::thread_rng().next_u64();
         self.game = Game::Playing {
             game: GameInner::new(opts, &names, seed)?,
-            started_ts: SystemTime::now(),
+            started_ts: chrono::offset::Utc::now(),
             archived: false,
         };
         self.notify();
@@ -342,19 +343,23 @@ impl Session {
         let Game::Playing { game, started_ts, archived } = &mut self.game else {
             return Ok(());
         };
-        if game.game_over() && !*archived {
-            let key = self.dbs.db.generate_id()?.to_be_bytes();
-            let data = json!({
-                "game_id": self.id,
-                "players": game.player_names().collect::<Value>(),
-                "started": iso8601(*started_ts),
-                "finished": iso8601(SystemTime::now()),
-                "outcome": game.outcome()
-            })
-            .to_string();
-            self.dbs.archive.insert(key, data.as_bytes())?;
-            *archived = true;
+        if *archived {
+            return Ok(());
         }
+        let Some(outcome) = game.outcome() else {
+            return Ok(());
+        };
+        let key = self.dbs.db.generate_id()?.to_be_bytes();
+        let stats = GameStats {
+            id: self.id.clone(),
+            started: *started_ts,
+            finished: chrono::offset::Utc::now(),
+            players: game.player_names().map(str::to_string).collect(),
+            outcome,
+        };
+        let stats = serde_json::to_string(&stats)?;
+        self.dbs.archive.insert(key, stats.as_bytes())?;
+        *archived = true;
         Ok(())
     }
 }
