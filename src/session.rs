@@ -151,14 +151,7 @@ impl SessionManager {
 
     fn random_id() -> String {
         let mut rng = rand::thread_rng();
-        (0..4)
-            .map(|_| match rng.gen_range('A'..='Z') {
-                // Avoid U and V because the "hitler font" can't distinguish them
-                'U' => 'A',
-                'V' => 'B',
-                other => other,
-            })
-            .collect()
+        (0..4).map(|_| rng.gen_range('A'..='Z')).collect()
     }
 }
 
