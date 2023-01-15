@@ -261,7 +261,7 @@ impl Game {
                         VetoStatus::VetoDenied => LegislativePhase::VetoRejected,
                     },
                     LegislativeSessionTurn::President { .. } => LegislativePhase::President,
-                    LegislativeSessionTurn::VetoRequested { .. } => LegislativePhase::VetoRejected,
+                    LegislativeSessionTurn::VetoRequested { .. } => LegislativePhase::VetoRequested,
                     LegislativeSessionTurn::VetoApproved => LegislativePhase::VetoApproved,
                 },
             },

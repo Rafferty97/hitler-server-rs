@@ -236,8 +236,8 @@ impl Game {
                 let (p1, p2) = (&players[i], &players[j]);
                 let adjacent = players_are_adjacent(i, j, players.len());
                 let result = match (p1.role, p2.role) {
-                    // Everyone knows their own role
-                    _ if i == j => InvestigationResult::Role(p2.role),
+                    // Everyone knows their own role, but exclude it from the list
+                    _ if i == j => InvestigationResult::Unknown,
                     // Ordinary fascists know all the fascists' identities
                     (Fascist, Fascist | Hitler | Monarchist) => InvestigationResult::Role(p2.role),
                     // In smaller games, Hitler knows who the other fascist is
