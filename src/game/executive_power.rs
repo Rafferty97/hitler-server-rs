@@ -56,21 +56,14 @@ impl Game {
         use ExecutiveAction::*;
 
         // There must have been a last government for an executive power to be played
-        let Government {
-            president,
-            chancellor,
-        } = self.last_government.unwrap();
+        let Government { president, chancellor } = self.last_government.unwrap();
 
         match action {
             InvestigatePlayer => {
                 self.state = GameState::ChoosePlayer {
                     action,
                     can_select: EligiblePlayers::only_one(president),
-                    can_be_selected: self
-                        .eligible_players()
-                        .not_investigated()
-                        .exclude(president)
-                        .make(),
+                    can_be_selected: self.eligible_players().not_investigated().exclude(president).make(),
                 };
             }
             SpecialElection => {
@@ -140,11 +133,7 @@ impl Game {
         }
         let can_be_selected = can_be_selected.make();
 
-        self.state = GameState::ChoosePlayer {
-            action,
-            can_select,
-            can_be_selected,
-        };
+        self.state = GameState::ChoosePlayer { action, can_select, can_be_selected };
         Ok(())
     }
 
@@ -184,10 +173,7 @@ impl Game {
         };
 
         if hijacked {
-            self.next_president = Some(NextPresident::Monarchist {
-                monarchist,
-                last_president,
-            });
+            self.next_president = Some(NextPresident::Monarchist { monarchist, last_president });
             self.start_round();
         } else {
             self.state = GameState::ChoosePlayer {
@@ -283,10 +269,7 @@ impl Game {
                 self.start_round();
             }
             Bugging => {
-                self.state = GameState::CommunistEnd {
-                    action: *action,
-                    chosen_player: None,
-                };
+                self.state = GameState::CommunistEnd { action: *action, chosen_player: None };
             }
             FiveYearPlan => {
                 self.deck.five_year_plan(&mut self.rng);

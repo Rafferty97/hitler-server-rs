@@ -22,12 +22,7 @@ impl Deck {
             false => (6, 11, 0),
             true => (6, 14, 8),
         };
-        Self {
-            liberal,
-            fascist,
-            communist,
-            deck: vec![],
-        }
+        Self { liberal, fascist, communist, deck: vec![] }
     }
 
     /// Shuffles the discard pile into the deck, if there are fewer than three cards in the draw deck.

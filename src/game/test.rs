@@ -118,10 +118,7 @@ fn eligible_chancellors_5players() {
         },
         deck: Deck::new(false),
         election_tracker: 0,
-        last_government: Some(Government {
-            president: 0,
-            chancellor: 3,
-        }),
+        last_government: Some(Government { president: 0, chancellor: 3 }),
         players: vec![
             Player::new("ALEX".to_string(), Role::Liberal),
             Player::new("BOB".to_string(), Role::Liberal),
@@ -147,7 +144,13 @@ fn eligible_chancellors_5players() {
     }
     game.end_card_reveal(None).unwrap();
 
-    let GameState::Election { president, chancellor, eligible_chancellors, votes } = game.state else {
+    let GameState::Election {
+        president,
+        chancellor,
+        eligible_chancellors,
+        votes,
+    } = game.state
+    else {
         panic!("Expected an election");
     };
 

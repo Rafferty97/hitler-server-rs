@@ -46,9 +46,7 @@ impl Game {
     pub fn eligible_players(&self) -> EligiblePlayersBuilder<'_> {
         EligiblePlayersBuilder {
             game: self,
-            eligible: core::array::from_fn(|i| {
-                self.players.get(i).map(|p| p.alive).unwrap_or(false)
-            }),
+            eligible: core::array::from_fn(|i| self.players.get(i).map(|p| p.alive).unwrap_or(false)),
         }
     }
 }
@@ -83,8 +81,6 @@ impl<'a> EligiblePlayersBuilder<'a> {
     }
 
     pub fn make(self) -> EligiblePlayers {
-        EligiblePlayers {
-            eligible: self.eligible,
-        }
+        EligiblePlayers { eligible: self.eligible }
     }
 }

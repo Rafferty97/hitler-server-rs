@@ -57,11 +57,7 @@ impl MonarchistVotes {
     /// Creates a new `MonarchistVotes`.
     pub fn new(num_players: usize, monarchist: usize) -> Self {
         let votes = [None; MAX_PLAYERS];
-        Self {
-            num_players,
-            monarchist,
-            votes,
-        }
+        Self { num_players, monarchist, votes }
     }
 
     /// Returns whether the given player has cast their vote.

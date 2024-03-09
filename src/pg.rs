@@ -85,12 +85,7 @@ fn read_row(entry: (IVec, IVec)) -> Option<(i64, GameStats)> {
     Some((key, game))
 }
 
-async fn write_row(
-    client: &Client,
-    stmt: &Statement,
-    key: i64,
-    game: GameStats,
-) -> Result<(), Box<dyn Error>> {
+async fn write_row(client: &Client, stmt: &Statement, key: i64, game: GameStats) -> Result<(), Box<dyn Error>> {
     let args: [&(dyn ToSql + Sync); 6] = [
         &key,
         &game.id.as_str(),

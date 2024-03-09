@@ -138,11 +138,7 @@ impl PlayerDistribution {
         // Subtract away the special roles
         let hitler = true;
         let GameOptions {
-            monarchist,
-            anarchist,
-            capitalist,
-            centrists,
-            ..
+            monarchist, anarchist, capitalist, centrists, ..
         } = *opts;
 
         fascists -= hitler as isize;

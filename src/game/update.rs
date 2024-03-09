@@ -1,10 +1,6 @@
-use super::{
-    government::Government, party::Party, player::InvestigationResult, Game, GameState,
-    WinCondition,
-};
+use super::{government::Government, party::Party, player::InvestigationResult, Game, GameState, WinCondition};
 use crate::game::{
-    executive_power::ExecutiveAction, player::Role, AssassinationState, LegislativeSessionTurn,
-    VetoStatus,
+    executive_power::ExecutiveAction, player::Role, AssassinationState, LegislativeSessionTurn, VetoStatus,
 };
 use serde::{Deserialize, Serialize};
 
@@ -226,9 +222,7 @@ impl Game {
         match &self.state {
             Night { .. } => BoardPrompt::Night,
 
-            Election {
-                president, chancellor, votes, ..
-            } => BoardPrompt::Election {
+            Election { president, chancellor, votes, .. } => BoardPrompt::Election {
                 president: *president,
                 chancellor: *chancellor,
                 votes: votes.votes().to_vec(),
@@ -284,26 +278,21 @@ impl Game {
             },
 
             ChoosePlayer { action, .. } => match action {
-                ExecutiveAction::InvestigatePlayer => {
-                    BoardPrompt::InvestigatePlayer { chosen_player: None }
-                }
+                ExecutiveAction::InvestigatePlayer => BoardPrompt::InvestigatePlayer { chosen_player: None },
                 ExecutiveAction::SpecialElection => BoardPrompt::SpecialElection {
                     can_hijack: false,
                     hijacked_by: None,
                     chosen_player: None,
                 },
                 ExecutiveAction::Execution => BoardPrompt::Execution { chosen_player: None },
-                ExecutiveAction::Bugging
-                | ExecutiveAction::Radicalisation
-                | ExecutiveAction::Congress => BoardPrompt::CommunistSession {
-                    action: *action,
-                    phase: CommunistSessionPhase::InProgress,
-                },
+                ExecutiveAction::Bugging | ExecutiveAction::Radicalisation | ExecutiveAction::Congress => {
+                    BoardPrompt::CommunistSession {
+                        action: *action,
+                        phase: CommunistSessionPhase::InProgress,
+                    }
+                }
                 ExecutiveAction::FiveYearPlan => BoardPrompt::FiveYearPlan,
-                ExecutiveAction::Confession => BoardPrompt::Confession {
-                    chosen_player: None,
-                    party: None,
-                },
+                ExecutiveAction::Confession => BoardPrompt::Confession { chosen_player: None, party: None },
                 _ => unreachable!(),
             },
 
@@ -318,24 +307,20 @@ impl Game {
             },
 
             ActionReveal { action, chosen_player, .. } => match action {
-                ExecutiveAction::InvestigatePlayer => {
-                    BoardPrompt::InvestigatePlayer { chosen_player: *chosen_player }
-                }
+                ExecutiveAction::InvestigatePlayer => BoardPrompt::InvestigatePlayer { chosen_player: *chosen_player },
                 ExecutiveAction::SpecialElection => BoardPrompt::SpecialElection {
                     can_hijack: false,
                     hijacked_by: None,
                     chosen_player: *chosen_player,
                 },
                 ExecutiveAction::PolicyPeak => BoardPrompt::PolicyPeak,
-                ExecutiveAction::Execution => {
-                    BoardPrompt::Execution { chosen_player: *chosen_player }
+                ExecutiveAction::Execution => BoardPrompt::Execution { chosen_player: *chosen_player },
+                ExecutiveAction::Bugging | ExecutiveAction::Radicalisation | ExecutiveAction::Congress => {
+                    BoardPrompt::CommunistSession {
+                        action: *action,
+                        phase: CommunistSessionPhase::Reveal,
+                    }
                 }
-                ExecutiveAction::Bugging
-                | ExecutiveAction::Radicalisation
-                | ExecutiveAction::Congress => BoardPrompt::CommunistSession {
-                    action: *action,
-                    phase: CommunistSessionPhase::Reveal,
-                },
                 ExecutiveAction::FiveYearPlan => BoardPrompt::FiveYearPlan,
                 ExecutiveAction::Confession => BoardPrompt::Confession {
                     chosen_player: *chosen_player,
@@ -363,9 +348,7 @@ impl Game {
         }
 
         match &self.state {
-            Night { confirmations } => {
-                (!confirmations.has_confirmed(player_idx)).then_some(PlayerPrompt::Night)
-            }
+            Night { confirmations } => (!confirmations.has_confirmed(player_idx)).then_some(PlayerPrompt::Night),
 
             Election {
                 president,
@@ -410,13 +393,15 @@ impl Game {
             }
 
             LegislativeSession { president, chancellor, turn } => match turn {
-                LegislativeSessionTurn::President { cards } => (player_idx == *president)
-                    .then_some(PlayerPrompt::PresidentDiscard { cards: *cards }),
-                LegislativeSessionTurn::Chancellor { cards, veto } => (player_idx == *chancellor)
-                    .then_some(PlayerPrompt::ChancellorDiscard {
+                LegislativeSessionTurn::President { cards } => {
+                    (player_idx == *president).then_some(PlayerPrompt::PresidentDiscard { cards: *cards })
+                }
+                LegislativeSessionTurn::Chancellor { cards, veto } => {
+                    (player_idx == *chancellor).then_some(PlayerPrompt::ChancellorDiscard {
                         cards: *cards,
                         can_veto: *veto == VetoStatus::CanVeto,
-                    }),
+                    })
+                }
                 LegislativeSessionTurn::VetoRequested { .. } => {
                     (player_idx == *president).then_some(PlayerPrompt::ApproveVeto)
                 }
@@ -437,11 +422,7 @@ impl Game {
                 (!hijacked && player_idx == *monarchist).then_some(PlayerPrompt::HijackElection)
             }
 
-            ChoosePlayer {
-                action,
-                can_select,
-                can_be_selected,
-            } => can_select.includes(player_idx).then(|| {
+            ChoosePlayer { action, can_select, can_be_selected } => can_select.includes(player_idx).then(|| {
                 use ExecutiveAction::*;
                 let kind = match action {
                     InvestigatePlayer | Bugging => ChoosePlayerKind::Investigate,
@@ -451,23 +432,14 @@ impl Game {
                     Confession => ChoosePlayerKind::Confession,
                     PolicyPeak | FiveYearPlan => unreachable!(),
                 };
-                PlayerPrompt::ChoosePlayer {
-                    kind,
-                    options: can_be_selected.names(self),
-                }
+                PlayerPrompt::ChoosePlayer { kind, options: can_be_selected.names(self) }
             }),
 
-            Congress { .. } => {
-                (player.role == Role::Communist).then_some(PlayerPrompt::EndCongress)
-            }
+            Congress { .. } => (player.role == Role::Communist).then_some(PlayerPrompt::EndCongress),
 
             CommunistEnd { .. } => None,
 
-            ActionReveal {
-                action,
-                confirmations,
-                chosen_player,
-            } => {
+            ActionReveal { action, confirmations, chosen_player } => {
                 use ExecutiveAction::*;
 
                 if confirmations.has_confirmed(player_idx) {
@@ -516,11 +488,7 @@ impl Game {
                 let anarchist = player.role == Role::Anarchist && chosen_player.is_none();
                 anarchist.then_some(PlayerPrompt::ChoosePlayer {
                     kind: ChoosePlayerKind::Execute,
-                    options: self
-                        .eligible_players()
-                        .exclude(player_idx)
-                        .make()
-                        .names(self),
+                    options: self.eligible_players().exclude(player_idx).make().names(self),
                 })
             }
 

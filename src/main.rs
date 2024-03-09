@@ -43,10 +43,7 @@ async fn main() {
         log::error!("Could not create session manager: {:?}", err);
         std::process::exit(1)
     });
-    log::info!(
-        "Created session manager. Loaded {} games.",
-        manager.num_games()
-    );
+    log::info!("Created session manager. Loaded {} games.", manager.num_games());
 
     // Spin up background task to clean up old games
     tokio::spawn(async {

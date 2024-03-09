@@ -58,6 +58,7 @@ enum Game {
         /// Whether this game has been archived.
         archived: bool,
     },
+    #[allow(clippy::enum_variant_names)]
     GameOver,
 }
 
@@ -306,9 +307,7 @@ impl Session {
             lifecycle: GameLifecycle::Playing,
             players: game.get_public_players(),
             board_update: Some(game.get_board_update()),
-            player_updates: (0..game.num_players())
-                .map(|i| game.get_player_update(i))
-                .collect(),
+            player_updates: (0..game.num_players()).map(|i| game.get_player_update(i)).collect(),
         }
     }
 
@@ -324,10 +323,9 @@ impl Session {
 
     /// Persists the game state to disk, so it can be recovered upon server restart.
     fn persist_game(&mut self) -> Result<(), Box<dyn Error>> {
-        self.dbs.game.insert(
-            self.id.as_bytes(),
-            serde_json::to_string(&self.game)?.as_bytes(),
-        )?;
+        self.dbs
+            .game
+            .insert(self.id.as_bytes(), serde_json::to_string(&self.game)?.as_bytes())?;
         Ok(())
     }
 
