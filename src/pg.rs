@@ -14,7 +14,7 @@ pub struct GameStats {
     pub outcome: WinCondition,
 }
 
-pub async fn sync_game_stats(db: sled::Db) {
+pub async fn sync_game_stats(db: &sled::Db) {
     let client = match connect_pg().await {
         Ok(client) => client,
         Err(err) => return log::error!("Could not connect to PostgresQL: {:?}", err),

@@ -55,9 +55,11 @@ async fn main() {
 
     // Background task to write game statistics to PostgresQL
     if std::env::var("PG_HOST").is_ok() {
-        tokio::spawn(async {
-            sync_game_stats(db).await;
-            tokio::time::sleep(Duration::from_secs(60)).await;
+        tokio::spawn(async move {
+            loop {
+                sync_game_stats(&db).await;
+                tokio::time::sleep(Duration::from_secs(60)).await;
+            }
         });
     }
 
