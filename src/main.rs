@@ -1,4 +1,3 @@
-use crate::pg::sync_game_stats;
 use crate::session::SessionManager;
 use crate::ws::accept_connection;
 use std::{
@@ -8,10 +7,10 @@ use std::{
 };
 use tokio::net::TcpListener;
 
+mod api;
 mod client;
 mod error;
 mod game;
-mod pg;
 mod session;
 mod ws;
 
@@ -53,13 +52,14 @@ async fn main() {
         }
     });
 
-    // Background task to write game statistics to PostgresQL
-    if std::env::var("PG_HOST").is_ok() {
+    // API server
+    if let Some(port) = std::env::var("API_PORT").ok().and_then(|s| s.parse::<u16>().ok()) {
         tokio::spawn(async move {
-            loop {
-                sync_game_stats(&db).await;
-                tokio::time::sleep(Duration::from_secs(60)).await;
-            }
+            let router = api::make_router(manager).await;
+            let listener = api::listen(port).await;
+            axum::serve(listener, router).await.unwrap_or_else(|err| {
+                log::error!("Could not start API server: {}", err);
+            });
         });
     }
 
@@ -69,7 +69,7 @@ async fn main() {
     }
 }
 
-fn create_session_manager(db: sled::Db) -> Result<&'static mut SessionManager, Box<dyn Error>> {
+fn create_session_manager(db: sled::Db) -> Result<&'static SessionManager, Box<dyn Error>> {
     let manager = SessionManager::new(db)?;
     Ok(Box::leak(Box::new(manager)))
 }
