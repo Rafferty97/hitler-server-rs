@@ -24,6 +24,7 @@ mod government;
 mod options;
 mod party;
 mod player;
+#[cfg(test)]
 mod test;
 mod update;
 mod votes;
@@ -146,7 +147,7 @@ enum AssassinationState {
     Completed,
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize, Debug)]
+#[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
 pub enum WinCondition {
     /// The liberals completed their policy track.
     LiberalPolicyTrack,
