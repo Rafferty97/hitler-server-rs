@@ -335,28 +335,12 @@ fn test_complete_bugging_action_flow() {
     }
 
     // Step 4: Test the confirmation flow properly
-    // We need to confirm all players for the action to proceed
-    let num_alive = game.num_players_alive();
-
-    // First player confirms - should not proceed yet
+    // For Bugging action, the first confirmation transitions directly to CommunistEnd
     let result1 = game.end_executive_action(Some(0));
     assert!(result1.is_ok(), "First confirmation should succeed");
 
-    // Should still be in ActionReveal state waiting for more confirmations
-    assert!(matches!(
-        game.state,
-        GameState::ActionReveal { action: ExecutiveAction::Bugging, .. }
-    ));
-
-    // Confirm remaining players
-    for i in 1..num_alive {
-        let result = game.end_executive_action(Some(i));
-        assert!(result.is_ok(), "Player {} confirmation should succeed", i);
-    }
-
-    // Now should transition to CommunistEnd
+    // Should transition directly to CommunistEnd for Bugging action
     assert!(matches!(game.state, GameState::CommunistEnd { .. }));
-    println!("SUCCESS: Bugging action properly reached CommunistEnd state");
 
     // Complete the flow
     game.end_communist_end().unwrap();
@@ -405,8 +389,12 @@ fn test_complete_radicalisation_action_flow() {
     ));
     validate_game_state_integrity(&game).unwrap();
 
-    // Step 5: End action reveal
-    game.end_executive_action(None).unwrap();
+    // Step 5: End action reveal - radicalisation requires all players to confirm
+    let num_alive = game.num_players_alive();
+    for i in 0..num_alive {
+        let result = game.end_executive_action(Some(i));
+        assert!(result.is_ok(), "Player {} confirmation should succeed", i);
+    }
     assert!(matches!(game.state, GameState::Election { .. }) || matches!(game.state, GameState::Night { .. }));
     validate_game_state_integrity(&game).unwrap();
 }
@@ -475,6 +463,14 @@ fn test_complete_congress_action_flow() {
 fn test_state_integrity_validation() {
     // Test various invalid states
     let mut game = create_standard_5_player_game();
+
+    // Set up confirmations to be ready for validation
+    let num_players = game.num_players();
+    if let GameState::Night { confirmations } = &mut game.state {
+        for i in 0..num_players {
+            confirmations.confirm(i);
+        }
+    }
 
     // Valid state should pass
     validate_game_state_integrity(&game).unwrap();

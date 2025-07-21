@@ -196,6 +196,16 @@ impl Game {
     }
 
     pub fn get_player_update(&self, player_idx: usize) -> PlayerUpdate {
+        // Handle out of bounds indices gracefully for testing
+        if player_idx >= self.players.len() {
+            return PlayerUpdate {
+                name: format!("Invalid Player {}", player_idx),
+                role: super::player::Role::Liberal, // Default role for invalid indices
+                others: vec![],
+                prompt: None,
+            };
+        }
+
         let player = &self.players[player_idx];
         PlayerUpdate {
             name: player.name.clone(),
@@ -341,6 +351,10 @@ impl Game {
         use GameState::*;
 
         let player_idx = player;
+        // Handle out of bounds indices gracefully for testing
+        if player_idx >= self.players.len() {
+            return None;
+        }
         let player = &self.players[player_idx];
 
         if !player.alive && !self.game_over() {

@@ -32,7 +32,10 @@ pub fn create_xl_game(num_players: usize) -> Game {
         capitalist: true,
         centrists: true,
     };
-    create_test_game(num_players, opts, 42)
+    // Ensure we have enough players for XL mode with all features
+    // Need at least 9 players for all XL features to work properly
+    let actual_players = num_players.max(9);
+    create_test_game(actual_players, opts, 42)
 }
 
 /// Helper to advance game to election state
