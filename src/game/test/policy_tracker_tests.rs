@@ -14,8 +14,6 @@
 //! - ASSUMPTION: Powers activate immediately when threshold is reached
 
 use super::super::player::Role;
-use super::super::Party;
-use super::test_utils::*;
 use crate::game::{Game, GameOptions};
 
 /// Test policy tracker initialization for different player counts

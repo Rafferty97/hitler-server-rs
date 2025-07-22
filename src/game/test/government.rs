@@ -198,7 +198,7 @@ fn eligible_chancellors_5players() {
     use super::super::deck::Deck;
     use super::super::player::{Player, Role};
     use super::super::Party::*;
-    use super::super::{GameState, WinCondition};
+    use super::super::GameState;
     use crate::game::{Game, GameOptions};
     use rand::SeedableRng;
     use rand_chacha::ChaCha8Rng;

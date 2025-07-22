@@ -13,7 +13,6 @@
 //! - QUESTION: If a game starts with <11 players but gets radicalized, do communists learn identities?
 
 use super::super::player::Role;
-use super::test_utils::*;
 use crate::game::{Game, GameOptions};
 
 /// Test that communists know each other at start with 11+ players

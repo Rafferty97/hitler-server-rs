@@ -14,7 +14,6 @@
 //! - ASSUMPTION: Anarchist policies may have disruptive or chaos-inducing effects
 
 use super::super::player::Role;
-use super::test_utils::*;
 use crate::game::{Game, GameOptions};
 
 /// Test anarchist role assignment in games with anarchist enabled

@@ -14,7 +14,6 @@
 //! - ASSUMPTION: Capitalist win is checked at end of game like other conditions
 
 use super::super::player::Role;
-use super::test_utils::*;
 use crate::game::{Game, GameOptions};
 
 /// Test that Capitalist role is assigned correctly in different player counts

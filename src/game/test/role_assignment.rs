@@ -16,7 +16,6 @@
 
 use super::super::party::Party;
 use super::super::player::{assign_roles, PlayerDistribution, Role};
-use super::test_utils::*;
 use crate::game::{Game, GameOptions};
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;

@@ -12,7 +12,6 @@
 //! QUESTION: Should the system support 17-20 players? What are the official ratios?
 
 use super::super::player::Role;
-use super::test_utils::*;
 use crate::game::{Game, GameOptions};
 
 /// Test that the system accepts valid player counts (6-20 per test.md specification)

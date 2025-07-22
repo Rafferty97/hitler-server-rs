@@ -7,7 +7,6 @@
 #![allow(clippy::bool_assert_comparison)]
 
 // Re-export common test utilities
-pub use test_utils::*;
 
 // Test submodules
 pub mod anarchist_mechanics;
