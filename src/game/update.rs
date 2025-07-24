@@ -119,6 +119,7 @@ pub enum PlayerPrompt {
         cards: [Party; 3],
     },
     Radicalisation {
+        name: Option<String>,
         result: RadicalisationResult,
     },
     Dead,
@@ -481,6 +482,7 @@ impl Game {
                         }
                     }),
                     Radicalisation | Congress => {
+                        let name = chosen_player.map(|idx| &self.players[idx].name).cloned();
                         let result = if player.role != Role::Communist {
                             RadicalisationResult::Unchanged
                         } else if chosen_player.is_none() {
@@ -492,7 +494,7 @@ impl Game {
                         } else {
                             RadicalisationResult::Fail
                         };
-                        Some(PlayerPrompt::Radicalisation { result })
+                        Some(PlayerPrompt::Radicalisation { name, result })
                     }
                     _ => None,
                 }
